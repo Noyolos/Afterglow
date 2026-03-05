@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,7 +13,7 @@
                 <span class="af-agent-dot" aria-hidden="true"></span>
                 <span class="af-agent-name">Gemini</span>
             </div>
-            <div id="af-typing-indicator" class="af-typing" hidden>对方正在输入…</div>
+            <div id="af-typing-indicator" class="af-typing" hidden>姝ｅ湪杈撳叆...</div>
         </div>
         <div id="af-stage-stack" class="af-stage-stack">
             <div id="af-home-prompt" class="af-bubble af-bubble--ai" hidden>Use WORKSTATION -> UPLOAD to begin</div>
@@ -42,6 +42,7 @@
         <div class="af-nav__brand">AFTERGLOW</div>
         <div class="af-nav__center">
             <div class="af-nav__link">THE GARDEN</div>
+            <div class="af-nav__link" data-action="open-calendar">CALENDAR</div>
             <div class="af-nav__link">MEMORY</div>
             <div class="af-nav__link">MUSIC</div>
             <div class="af-nav__link" data-action="open-info">INFO</div>
@@ -159,16 +160,37 @@
         </div>
 
         <div id="af-hud">
-            <div id="af-home-voice" class="af-home-voice">
-                <button id="af-mic-btn" class="af-mic" type="button" aria-label="Mic">
-                    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3Z"/>
-                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                        <line x1="12" y1="19" x2="12" y2="22"/>
-                        <line x1="8" y1="22" x2="16" y2="22"/>
-                    </svg>
-                </button>
-                <div class="af-bottom-row">
+            <div id="af-memory-input" class="glass-input-wrapper">
+                <div id="output-display" class="opacity-0" aria-live="polite"></div>
+                <div id="input-wrapper" class="memory-input-shell">
+                    <div id="audio-wave" class="audio-wave opacity-0" aria-hidden="true">
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                        <div class="wave-bar"></div>
+                    </div>
+                    <div class="memory-input-row">
+                        <input id="memory-input" type="text" autocomplete="off" spellcheck="false" placeholder="type here..." />
+                        <button id="mic-btn" class="mic-btn" type="button" aria-label="Start recording" aria-pressed="false" title="Click to dictate">
+                            <svg id="mic-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
+                                <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                                <line x1="12" x2="12" y1="19" y2="22"></line>
+                            </svg>
+                            <svg id="stop-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="memory-icon-hidden">
+                                <rect x="6" y="6" width="12" height="12" rx="2" ry="2"></rect>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="memory-input-foot">
+                    <p>Press <kbd>Enter</kbd> to save memory</p>
+                    <p id="status-text" class="opacity-0">Listening...</p>
+                </div>
+                <div class="memory-action-row">
                     <div id="af-voice-timer" class="af-pill-mini">00:00</div>
                     <button id="af-save-memory" class="af-save" type="button">
                         <span class="af-save-label">Save Memory</span><span aria-hidden="true">&gt;</span>
@@ -182,7 +204,7 @@
             <div class="af-info-card">
                 <div class="af-info-head">
                     <div class="af-info-title">INFO</div>
-                    <button id="af-info-close" class="af-info-close" type="button" aria-label="Close">×</button>
+                    <button id="af-info-close" class="af-info-close" type="button" aria-label="Close">脳</button>
                 </div>
 
                 <div class="af-info-body">
@@ -212,6 +234,60 @@
     </div>
 
     <div id="canvas-container"></div>
+    </div>
+
+    <div id="view-calendar" class="view-hidden" aria-hidden="true">
+        <canvas id="calendar-webgl-bg" class="calendar-webgl-bg" aria-hidden="true"></canvas>
+        <div class="calendar-noise-overlay" aria-hidden="true"></div>
+        <div id="calendar-card" class="glass-card calendar-card">
+            <div class="calendar-copy">
+                <h1>Day/night<br>chron</h1>
+                <p>You and I have memories,<br>longer than the road that stretches out ahead</p>
+                <p class="calendar-hint">Tap a date to anchor this memory.</p>
+                <p class="calendar-sign">@Afterglow n GEMINI</p>
+            </div>
+            <div class="calendar-nav">
+                <button type="button" aria-label="Previous month">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M15 18l-6-6 6-6"/>
+                    </svg>
+                </button>
+                <span id="calendar-month-year">December 2025</span>
+                <button type="button" aria-label="Next month">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="calendar-weekdays">
+                <div>S</div><div>M</div><div>T</div><div>W</div><div>T</div><div>F</div><div>S</div>
+            </div>
+            <div id="calendar-days" class="calendar-days"></div>
+            <div class="calendar-actions">
+                <button id="calendar-back-home" type="button" class="calendar-action-btn">Back Home</button>
+                <button id="calendar-open-day" type="button" class="calendar-action-btn is-primary">Open Day</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-gallery" class="view-hidden" aria-hidden="true">
+        <nav class="memory-gallery-nav">
+            <a href="#" id="btn-back-to-calendar">BACK TO CHRON</a>
+            <a href="#">MEMORY</a>
+            <a href="#">MUSIC</a>
+            <a href="#">INFO</a>
+        </nav>
+        <main id="gallery-container" class="gallery-scroll"></main>
+        <button id="nav-left" class="gallery-nav-btn" type="button" aria-label="Previous memory">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M15 18l-6-6 6-6"/>
+            </svg>
+        </button>
+        <button id="nav-right" class="gallery-nav-btn" type="button" aria-label="Next memory">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M9 18l6-6-6-6"/>
+            </svg>
+        </button>
     </div>
 
     <div id="af-landing" class="af-landing" aria-hidden="true">

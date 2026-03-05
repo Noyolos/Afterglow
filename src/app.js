@@ -3,7 +3,9 @@ import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 import { getDom } from "./dom.js";
 import { createParticleGeometry } from "./particles.js";
 import { createEditorMaterial, cloneMaterialFromSettings } from "./material.js";
-import { WebStorageProvider, createMemoryId, SCHEMA_VERSION } from "./storage/idb.js";
+import { WebStorageProvider, createMemoryId, SCHEMA_VERSION, idb } from "./storage/idb.js";
+import { MemoryCalendar } from "./ui/MemoryCalendar.js";
+import { MemoryGallery } from "./ui/MemoryGallery.js";
 
 const CONFIG = {
   TRANSITION_SPEED: 0.04,
@@ -35,10 +37,15 @@ function buildApiUrl(path) {
 const AI_ENABLED = true;
 const VOICE_RECOGNITION_LANG = "zh-CN";
 const VOICE_CHINESE_ONLY = true;
+const VOICE_BOX_SENSITIVITY = 1.3;
+const VOICE_BOX_SCALE_MAX_BOOST = 0.12;
 const CHINESE_CHAR_RE = /[\u4e00-\u9fff]/;
 const HOME_PROMPT_DEFAULT = "";
 const HOME_PROMPT_FALLBACK_QUESTIONS = [];
 const DIARY_FALLBACK_SUMMARY = "一个安静的瞬间，被光与流动轻轻收录。";
+
+const memoryCalendar = new MemoryCalendar();
+const memoryGallery = new MemoryGallery();
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
@@ -443,6 +450,8 @@ export class App {
     this.desiredTarget = new THREE.Vector3(0, 0, 0);
     this.defaultHomePrompt = this.dom.homePrompt?.textContent || HOME_PROMPT_DEFAULT;
     this.stage = new CenterStageController(this.dom);
+    this.memoryCalendar = memoryCalendar;
+    this.memoryGallery = memoryGallery;
     this.voiceTimerSeconds = 0;
     this.voiceTimerInterval = null;
     this.voiceTimerRunning = false;
@@ -463,6 +472,9 @@ export class App {
     this.blockerActive = false;
     this.sessionImage = null;
     this.imageAnalysis = "";
+    this.imageContext = null;
+    this.replyTurn = 0;
+    this.lastWasQuestion = false;
     this.messages = [];
     this._hudDirty = true;
     this._hudCache = {
@@ -474,6 +486,15 @@ export class App {
     this.diaryModalOpen = false;
     this.diaryModalData = null;
     this.shareResetTimer = null;
+    this.outputFadeTimer = null;
+    this.voiceBoxMeterContext = null;
+    this.voiceBoxMeterStream = null;
+    this.voiceBoxMeterSource = null;
+    this.voiceBoxMeterAnalyser = null;
+    this.voiceBoxMeterData = null;
+    this.voiceBoxMeterRaf = null;
+    this.voiceBoxMeterBootPromise = null;
+    this.voiceBoxReactiveActive = false;
     // [Codex] Voice Recognition Init
     this.recognition = null;
     this.isRecognizing = false;
@@ -508,6 +529,13 @@ export class App {
     this.mouseX = 0;
     this.mouseY = 0;
     this.currentSource = null;
+    this.galleryBackTarget = "home";
+
+    this.memoryGallery.setOnBack(() => {
+      this._handleGalleryBack();
+    });
+    this.memoryCalendar.hide();
+    this.memoryGallery.hide();
 
     this._initThree();
     this._initUI();
@@ -582,11 +610,17 @@ export class App {
       aiFontSlider,
       aiFontValue,
       voiceTimer,
+      memoryInput,
+      statusText,
+      outputDisplay,
       saveMemoryBtn,
       archiveBtn,
       closeVoiceBtn,
       landingUploadBtn,
       navInfo,
+      navCalendar,
+      calendarOpenDayBtn,
+      calendarBackHomeBtn,
       infoClose,
       renderToggle,
       renderKolam,
@@ -709,6 +743,11 @@ export class App {
     window.addEventListener("resize", () => this._updateNavOffset());
 
     if (voiceTimer) this._updateVoiceTimerLabel();
+    if (statusText && !statusText.textContent.trim()) {
+      statusText.textContent = "Listening...";
+    }
+    statusText?.classList.add("opacity-0");
+    outputDisplay?.classList.add("opacity-0");
 
     const root = document.documentElement;
     const setAiWidth = (value) => {
@@ -742,6 +781,24 @@ export class App {
     micBtn?.addEventListener("click", () => {
       this._toggleVoiceTimer();
     });
+    memoryInput?.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter" || e.shiftKey || e.isComposing) return;
+      e.preventDefault();
+      if (this.state?.mode !== "home") return;
+      if (this.saveInFlight || this.blockerActive) return;
+      if (this.voiceTimerRunning || this.isRecognizing) {
+        this.voiceTimerRunning = false;
+        this.voiceCommitPending = true;
+        try {
+          this.recognition?.stop();
+        } catch (err) {
+          console.warn("[speech] stop failed", err);
+          await this._submitMemoryInputText();
+        }
+        return;
+      }
+      await this._submitMemoryInputText();
+    });
     saveMemoryBtn?.addEventListener("click", () => {
       this._handleSaveMemory();
     });
@@ -754,6 +811,20 @@ export class App {
     navInfo?.addEventListener("click", () => {
       if (this.saveInFlight) return;
       this._setInfoOpen(true);
+    });
+    navCalendar?.addEventListener("click", () => {
+      if (this.saveInFlight || this.blockerActive) return;
+      this._openCalendarNavigator();
+    });
+    calendarOpenDayBtn?.addEventListener("click", () => {
+      if (this.saveInFlight || this.blockerActive) return;
+      this._openSelectedCalendarDay();
+    });
+    calendarBackHomeBtn?.addEventListener("click", () => {
+      if (this.saveInFlight) return;
+      this._hideMemoryViews();
+      this._setMainUIVisible(true);
+      this._syncHomeActionState();
     });
     infoClose?.addEventListener("click", () => {
       this._setInfoOpen(false);
@@ -862,20 +933,18 @@ export class App {
     this.recognition = new SpeechRecognition();
     this.recognition.lang = VOICE_RECOGNITION_LANG;
     this.recognition.interimResults = true;
-    this.recognition.continuous = false;
+    this.recognition.continuous = true;
 
     this.recognition.onstart = () => {
-      console.info("[speech] onstart", {
-        running: this.voiceTimerRunning,
-        draftLength: this.voiceDraft.length,
-      });
       this.isRecognizing = true;
       this._setMicActiveState(true);
       this.voiceInterim = "";
       this._renderVoiceDraft();
       this.stage.setListening(true);
+      this._setInputStatus("Listening...");
 
       if (!this.voiceTimerInterval) {
+        this.voiceTimerSeconds = 0;
         this._updateVoiceTimerLabel();
         this.voiceTimerInterval = setInterval(() => {
           this.voiceTimerSeconds++;
@@ -885,24 +954,10 @@ export class App {
     };
 
     this.recognition.onend = () => {
-      console.info("[speech] onend", {
-        running: this.voiceTimerRunning,
-        commitPending: this.voiceCommitPending,
-        draftLength: this.voiceDraft.length,
-      });
       this.isRecognizing = false;
-      if (this.voiceTimerRunning) {
-        this.voiceInterim = "";
-        this._renderVoiceDraft();
-        try {
-          this.recognition.start();
-        } catch (err) {
-          console.warn("Recognition restart failed", err);
-        }
-        return;
-      }
       const shouldCommit = this.voiceCommitPending;
       this.voiceCommitPending = false;
+      this.voiceTimerRunning = false;
       this._setMicActiveState(false);
       this.stage.setListening(false);
       if (this.voiceTimerInterval) {
@@ -914,9 +969,14 @@ export class App {
         this._handleUserVoiceInput(finalText);
       } else if (shouldCommit) {
         this.stage.showSystem("请用中文描述你的想法。");
+        this._setInputStatus("No speech detected");
+      } else {
+        this._setInputStatus("Ready");
       }
       this.voiceInterim = "";
       this._renderVoiceDraft();
+      this.voiceTimerSeconds = 0;
+      this._updateVoiceTimerLabel();
     };
 
     this.recognition.onresult = (event) => {
@@ -940,10 +1000,12 @@ export class App {
       console.warn("[speech] onerror", event.error);
       if (event.error === "not-allowed") {
         this._stopVoiceTimer({ reset: true });
+        this._setInputStatus("Mic permission denied");
         return;
       }
       if (["aborted", "audio-capture", "network"].includes(event.error)) {
         this._stopVoiceTimer();
+        this._setInputStatus("Recording failed");
       }
     };
   }
@@ -951,25 +1013,62 @@ export class App {
   async _handleUserVoiceInput(text) {
     const finalText = text?.trim();
     if (!finalText) return;
+    if (this.dom.memoryInput) this.dom.memoryInput.value = "";
     this.messages.push({ role: "user", content: finalText });
     this.chatContents.push({ role: "user", parts: [{ text: finalText }] });
     this._clearVoiceDraft({ hide: true });
+    this._setOutputDisplay(`"${finalText}"`, { autohideMs: 4000 });
+    this._setInputStatus("Thinking...");
 
     this.stage.setTyping(true);
     try {
-      const replyText = await this._fetchChatReply(this.chatContents);
+      const requestContents = this._buildChatContentsWithContext(finalText);
+      const replyText = await this._fetchChatReply(requestContents);
       if (!replyText) {
         this.stage.showSystem("连接失败。");
+        this._setInputStatus("No response");
         return;
       }
       this.messages.push({ role: "model", content: replyText });
       this.chatContents.push({ role: "model", parts: [{ text: replyText }] });
+      this._recordReplyState(replyText);
       this.stage.setTyping(false);
       this._streamRealReply(replyText);
+      this._setOutputDisplay(`"${replyText}"`, { autohideMs: 4000 });
+      this._setInputStatus("Ready");
     } catch (err) {
       console.error("Chat failed", err);
       this.stage.showSystem("连接失败。");
+      this._setInputStatus("Connection failed");
     }
+  }
+
+  async _submitMemoryInputText() {
+    const { memoryInput } = this.dom;
+    const text = memoryInput?.value?.trim() || "";
+    if (text.length > 0) {
+      if (!this._hasSessionImage()) {
+        this._setInputStatus("Upload a photo first");
+        return;
+      }
+      if (memoryInput) memoryInput.value = "";
+      await this._handleUserVoiceInput(text);
+      return;
+    }
+
+    const hasOpeningLine = this.messages.some(
+      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
+    );
+    if (!this._hasSessionImage()) {
+      this._setInputStatus("Upload a photo first");
+      return;
+    }
+    if (!hasOpeningLine) {
+      this._setInputStatus("Wait for AI opening line");
+      return;
+    }
+    this._setInputStatus("Saving memory...");
+    await this._handleSaveMemory();
   }
 
   _streamRealReply(text) {
@@ -1048,7 +1147,8 @@ export class App {
       const analysis = await analysisPromise;
       const caption = analysis?.caption || "";
       this.imageAnalysis = caption;
-      this._setOpeningLineFromAnalysis(caption);
+      this.imageContext = this._buildImageContext(analysis || {});
+      this._setOpeningLineFromAnalysis(analysis || {});
       this._setHomePromptQuestions(analysis?.questions);
       this._markAnalysisTrace(analysisTrace, "t4_ui", `captionLen=${caption.length}`);
       this._logAnalysisSummary(analysisTrace);
@@ -1084,7 +1184,7 @@ export class App {
     this._clearMockStream({ clearText: false });
 
     const transcript = this._getTranscriptForSave();
-    let modalShown = false;
+    let flowCompleted = false;
     try {
       const diaryResult = await this._getDiaryResultForSave(transcript);
       const diaryCard = diaryResult?.diaryCard;
@@ -1106,32 +1206,156 @@ export class App {
       this._setMeshScale(memoryMesh, record.dimensions);
       this._addMemory({ id, record, mesh: memoryMesh, hasHighRes: true, renderLoading: false }, { prepend: true });
       this._setSaveBlockerVisible(false);
-      this._presentDiaryModal({
-        diaryCard,
-        diaryText: diaryResult?.diaryText || "",
-        highlights: diaryResult?.highlights || [],
-      });
-      modalShown = true;
+      await this._handleSaveMemorySuccess(record);
+      flowCompleted = true;
     } catch (err) {
       console.warn("Failed to save memory", err);
       alert("Could not save memory. Please try again.");
     } finally {
       this.saveInFlight = false;
-      if (!modalShown) {
+      if (!flowCompleted) {
         this._setSaveBlockerVisible(false);
       }
       this._syncHomeActionState();
     }
   }
 
+  async _handleSaveMemorySuccess(newMemory) {
+    this._setMainUIVisible(false);
+    this.galleryBackTarget = "home";
+    await this._renderMemoryCalendarForCurrentMonth();
+    this.memoryCalendar.show();
+    const defaultDateKey = this._toLocalDateKey(new Date());
+    const selectedDateKey = await this.memoryCalendar.waitForDateSelection({
+      defaultDateKey,
+      timeoutMs: 120000,
+    });
+    if (newMemory && selectedDateKey) {
+      try {
+        newMemory.anchorDate = selectedDateKey;
+        await this.storage.upsertMemory(newMemory);
+      } catch (err) {
+        console.warn("Failed to persist selected anchor date", err);
+      }
+    }
+    await this.memoryCalendar.playPinAnimation(selectedDateKey);
+    this.memoryCalendar.setBackgroundOnly(true);
+    document.body.classList.add("gallery-over-calendar-bg");
+    await this._openGalleryForDateKey(selectedDateKey || defaultDateKey, { fallbackMemory: newMemory });
+  }
+
+  async _openGalleryForDateKey(targetDateKey, { fallbackMemory = null } = {}) {
+    const normalizedKey = this._toLocalDateKey(targetDateKey) || this._toLocalDateKey(new Date());
+    let todaysMemories = [];
+    try {
+      const allMemories = await idb.getAllMemories();
+      todaysMemories = allMemories.filter((memory) => {
+        const dateKey = this._getMemoryDateKey(memory);
+        return dateKey === normalizedKey;
+      });
+    } catch (err) {
+      console.warn("Failed to load today memories; falling back to current save", err);
+      if (fallbackMemory) todaysMemories = [fallbackMemory];
+    }
+
+    await this.memoryGallery.render(todaysMemories, async (assetId) => {
+      return await idb.getAsset(assetId);
+    });
+    this.memoryGallery.show();
+  }
+
+  async _openCalendarNavigator() {
+    this.galleryBackTarget = "calendar";
+    document.body.classList.remove("gallery-over-calendar-bg");
+    this.memoryGallery.hide();
+    this.memoryGallery.clear();
+    this._setMainUIVisible(false);
+    await this._renderMemoryCalendarForCurrentMonth();
+    this.memoryCalendar.setBackgroundOnly(false);
+    this.memoryCalendar.show();
+  }
+
+  async _openSelectedCalendarDay() {
+    const selectedDateKey = this.memoryCalendar.getSelectedDateKey() || this._toLocalDateKey(new Date());
+    this.galleryBackTarget = "calendar";
+    this.memoryCalendar.setBackgroundOnly(true);
+    document.body.classList.add("gallery-over-calendar-bg");
+    await this._openGalleryForDateKey(selectedDateKey);
+  }
+
+  _handleGalleryBack() {
+    if (this.galleryBackTarget === "calendar") {
+      this.memoryGallery.hide();
+      this.memoryGallery.clear();
+      document.body.classList.remove("gallery-over-calendar-bg");
+      this.memoryCalendar.setBackgroundOnly(false);
+      this.memoryCalendar.show();
+      return;
+    }
+    this._hideMemoryViews();
+    this._setMainUIVisible(true);
+    this._syncHomeActionState();
+  }
+
+  _setMainUIVisible(isVisible) {
+    document.body.classList.toggle("memory-views-active", !isVisible);
+  }
+
+  _hideMemoryViews() {
+    document.body.classList.remove("gallery-over-calendar-bg");
+    this.memoryGallery.hide();
+    this.memoryGallery.clear();
+    this.memoryCalendar.hide();
+  }
+
+  _toLocalDateKey(value) {
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      return value;
+    }
+    const date = value instanceof Date ? value : new Date(value || "");
+    if (Number.isNaN(date.getTime())) return "";
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
+
+  _getMemoryDateKey(memory) {
+    return this._toLocalDateKey(memory?.anchorDate) || this._toLocalDateKey(memory?.createdAt);
+  }
+
+  _buildHistoricalCounts(memories) {
+    const counts = {};
+    (Array.isArray(memories) ? memories : []).forEach((memory) => {
+      const key = this._getMemoryDateKey(memory);
+      if (!key) return;
+      counts[key] = (counts[key] || 0) + 1;
+    });
+    return counts;
+  }
+
+  async _renderMemoryCalendarForCurrentMonth() {
+    const now = new Date();
+    try {
+      const allMemories = await idb.getAllMemories();
+      const historicalCounts = this._buildHistoricalCounts(allMemories);
+      this.memoryCalendar.render(now.getFullYear(), now.getMonth() + 1, historicalCounts);
+    } catch (err) {
+      console.warn("Failed to render memory calendar", err);
+      this.memoryCalendar.render(now.getFullYear(), now.getMonth() + 1, {});
+    }
+  }
+
   async _initStorage() {
     try {
       await this.storage.init();
+      await idb.init();
       await this._hydrateFromStorage();
     } catch (err) {
       console.warn("Storage initialization failed; continuing without persistence", err);
     } finally {
       this._applyInitialMode();
+      await this._renderMemoryCalendarForCurrentMonth();
     }
   }
 
@@ -1293,16 +1517,71 @@ export class App {
     });
   }
 
+  _buildImageContext(analysis = {}) {
+    const caption = typeof analysis.caption === "string" ? analysis.caption.trim() : "";
+    const vibe = typeof analysis.vibe === "string" ? analysis.vibe.trim() : "";
+    const summarySource = caption || vibe || "一张安静的照片";
+    const summary = summarySource.replace(/[A-Za-z]/g, "").replace(/[。！？!?]/g, "").trim().slice(0, 18);
+    const tags = [];
+    const addTag = (tag) => {
+      const normalized = String(tag || "")
+        .replace(/[A-Za-z]/g, "")
+        .replace(/[，,。！？!?]/g, "")
+        .trim()
+        .slice(0, 6);
+      if (!normalized || tags.includes(normalized)) return;
+      tags.push(normalized);
+    };
+    addTag(vibe);
+    if (caption && caption !== vibe) addTag(caption);
+    while (tags.length < 2) addTag(tags.length === 0 ? "光影" : "氛围");
+    return { summary: summary || "一张安静的照片", tags: tags.slice(0, 2) };
+  }
+
   _buildOpeningLine(analysis) {
-    const raw = analysis ? String(analysis).trim() : "安静的画面";
-    const cleaned = raw.replace(/[.!?]+$/, "");
-    return `注意到${cleaned}，这一刻对你意味着什么？`;
+    const caption =
+      typeof analysis === "string"
+        ? analysis
+        : typeof analysis?.caption === "string"
+        ? analysis.caption
+        : "";
+    const cleaned = String(caption)
+      .replace(/[A-Za-z]/g, "")
+      .replace(/[。！？!?]/g, "")
+      .replace(/^[，,、\s]+/, "")
+      .trim();
+    const subject = cleaned.slice(0, 10) || "光影";
+    const vibeTextParts = [];
+    if (typeof analysis?.vibe === "string") vibeTextParts.push(analysis.vibe);
+    if (Array.isArray(analysis?.tags)) vibeTextParts.push(...analysis.tags);
+    if (Array.isArray(this.imageContext?.tags)) vibeTextParts.push(...this.imageContext.tags);
+    const vibeText = vibeTextParts.join("");
+    const endings = ["也太治愈了", "好浪漫", "好温柔", "有点想笑", "氛围感拉满"];
+    const emojis = ["✨", "", "", "️", ""];
+    let ending = "";
+    if (vibeText.includes("浪漫")) ending = "好浪漫";
+    else if (vibeText.includes("温柔") || vibeText.includes("柔和")) ending = "好温柔";
+    else if (vibeText.includes("治愈") || vibeText.includes("温暖") || vibeText.includes("暖")) ending = "也太治愈了";
+    else if (vibeText.includes("笑") || vibeText.includes("开心") || vibeText.includes("快乐")) ending = "有点想笑";
+    else if (vibeText.includes("氛围") || vibeText.includes("夜") || vibeText.includes("灯"))
+      ending = "氛围感拉满";
+    if (!ending) {
+      const seed = hashStringToSeed(subject + vibeText);
+      const index = Math.floor(seed * endings.length) % endings.length;
+      ending = endings[index];
+    }
+    const emojiSeed = hashStringToSeed(subject + ending);
+    const emojiIndex = Math.floor(emojiSeed * emojis.length) % emojis.length;
+    const emoji = emojis[emojiIndex];
+    return `${subject}${ending}${emoji}`;
   }
 
   _setOpeningLineFromAnalysis(analysis) {
     const line = this._buildOpeningLine(analysis);
     this.messages = [{ role: "model", content: line }];
     this.chatContents = [{ role: "model", parts: [{ text: line }] }];
+    this.replyTurn = 1;
+    this.lastWasQuestion = this._hasQuestionMark(line);
     this.stage.showAI(line);
     return line;
   }
@@ -1535,6 +1814,11 @@ export class App {
     const { blocker, blockerText } = this.dom;
     this.blockerActive = isVisible;
     document.body.classList.toggle("is-blocked", isVisible);
+    if (typeof text === "string" && text.trim()) {
+      this._setInputStatus(text);
+    } else if (!isVisible) {
+      this._setInputStatus("Ready");
+    }
     if (blockerText && typeof text === "string") {
       blockerText.innerText = text;
     }
@@ -1584,13 +1868,15 @@ export class App {
       agentPill.style.pointerEvents = isVisible ? "auto" : "none";
     }
     if (homeVoice) {
-      homeVoice.style.display = isVisible ? "flex" : "none";
+      homeVoice.style.display = isVisible ? "block" : "none";
       homeVoice.style.pointerEvents = isVisible ? "auto" : "none";
     }
     if (!isVisible) {
       this._stopVoiceTimer();
       this._clearMockStream({ clearText: true });
       this._clearMockDiaryTimer();
+    } else {
+      this._setInputStatus("Ready");
     }
   }
 
@@ -1600,22 +1886,26 @@ export class App {
   }
 
   _syncHomeActionState() {
-    const { micBtn, saveMemoryBtn, archiveBtn, closeVoiceBtn } = this.dom;
+    const { micBtn, memoryInput, saveMemoryBtn, archiveBtn, closeVoiceBtn } = this.dom;
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
     const hasOpeningLine = this.messages.some(
       (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
     );
-    const canUseMic = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
-    const canSave = canUseMic && hasOpeningLine;
+    const canInteract = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
+    const canSave = canInteract && hasOpeningLine;
     const voiceActive = this.voiceTimerRunning || this.isRecognizing;
 
-    const nextMicDisabled = !canUseMic && !voiceActive;
+    const nextMicDisabled = !canInteract && !voiceActive;
+    const nextInputDisabled = !canInteract && !voiceActive;
     const nextSaveDisabled = !canSave;
-    const nextCloseDisabled = !canUseMic && !voiceActive;
+    const nextCloseDisabled = !canInteract && !voiceActive;
     if (micBtn && this._hudCache.micDisabled !== nextMicDisabled) {
       micBtn.disabled = nextMicDisabled;
       this._hudCache.micDisabled = nextMicDisabled;
+    }
+    if (memoryInput) {
+      memoryInput.disabled = nextInputDisabled;
     }
     if (saveMemoryBtn && this._hudCache.saveDisabled !== nextSaveDisabled) {
       saveMemoryBtn.disabled = nextSaveDisabled;
@@ -1633,6 +1923,36 @@ export class App {
       this._stopVoiceTimer({ reset: true, clearDraft: true });
       this._clearMockStream({ clearText: true });
     }
+    if (!hasImage && !voiceActive) {
+      this._setInputStatus("Upload a photo to start");
+    } else if (!this.saveInFlight && !this.blockerActive && !voiceActive) {
+      this._setInputStatus("Ready");
+    }
+  }
+
+  _setInputStatus(text, { show = null } = {}) {
+    const { statusText } = this.dom;
+    if (!statusText || typeof text !== "string") return;
+    statusText.textContent = text;
+    const shouldShow = show == null ? text.trim().toLowerCase() !== "ready" : Boolean(show);
+    statusText.classList.toggle("opacity-0", !shouldShow);
+  }
+
+  _setOutputDisplay(text, { autohideMs = 0 } = {}) {
+    const { outputDisplay } = this.dom;
+    if (!outputDisplay) return;
+    if (this.outputFadeTimer) {
+      window.clearTimeout(this.outputFadeTimer);
+      this.outputFadeTimer = null;
+    }
+    const next = typeof text === "string" ? text.trim() : "";
+    outputDisplay.textContent = next;
+    outputDisplay.classList.toggle("opacity-0", !next);
+    if (next && autohideMs > 0) {
+      this.outputFadeTimer = window.setTimeout(() => {
+        outputDisplay.classList.add("opacity-0");
+      }, autohideMs);
+    }
   }
 
   _updateVoiceTimerLabel() {
@@ -1640,7 +1960,10 @@ export class App {
     if (!voiceTimer) return;
     const minutes = Math.floor(this.voiceTimerSeconds / 60);
     const seconds = this.voiceTimerSeconds % 60;
-    const nextLabel = `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+    const nextLabel =
+      this.voiceTimerRunning || this.isRecognizing
+        ? `Listening ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+        : "Ready";
     if (this._hudCache.timerLabel !== nextLabel) {
       voiceTimer.textContent = nextLabel;
       this._hudCache.timerLabel = nextLabel;
@@ -1656,14 +1979,25 @@ export class App {
 
   _renderVoiceDraft() {
     const display = this._getVoiceDraftDisplay();
-    if (display) this.stage.showUser(display);
-    else this.stage.hideUser();
+    if (display) {
+      if (this.dom.memoryInput && (this.voiceTimerRunning || this.isRecognizing)) {
+        this.dom.memoryInput.value = display;
+      }
+      this._setOutputDisplay(`Transcript: ${display}`);
+      this.stage.showUser(display);
+    } else {
+      this.stage.hideUser();
+    }
   }
 
   _clearVoiceDraft({ hide = false } = {}) {
     this.voiceDraft = "";
     this.voiceInterim = "";
-    if (hide) this.stage.hideUser();
+    if (hide) {
+      this.stage.hideUser();
+      this._setOutputDisplay("");
+      if (this.dom.memoryInput) this.dom.memoryInput.value = "";
+    }
   }
 
   _toggleVoiceTimer() {
@@ -1680,6 +2014,7 @@ export class App {
       this.voiceCommitPending = true;
       this.stage.setListening(false);
       this._setMicActiveState(false);
+      this._setInputStatus("Stopping...");
       if (this.isRecognizing) {
         try {
           this.recognition.stop();
@@ -1691,20 +2026,28 @@ export class App {
     }
 
     if (this.saveInFlight || this.blockerActive) return;
-    if (!this._hasSessionImage()) return;
+    if (!this._hasSessionImage()) {
+      this._setInputStatus("Upload a photo first");
+      return;
+    }
     if (!this.recognition) {
-      alert("当前不支持语音识别");
+      this._setInputStatus("Speech recognition unsupported");
       return;
     }
 
     this.voiceTimerRunning = true;
     this.voiceCommitPending = false;
     this.voiceInterim = "";
+    if (this.dom.memoryInput) {
+      this.dom.memoryInput.value = "";
+      this.dom.memoryInput.focus();
+    }
     this._renderVoiceDraft();
     this.voiceTimerSeconds = 0;
     this._updateVoiceTimerLabel();
     this.stage.setListening(true);
     this._setMicActiveState(true);
+    this._setInputStatus("Listening...");
     if (this.isRecognizing) return;
     try {
       this.recognition.start();
@@ -1713,6 +2056,7 @@ export class App {
       this.voiceCommitPending = false;
       this.stage.setListening(false);
       this._setMicActiveState(false);
+      this._setInputStatus("Unable to start mic");
     }
   }
 
@@ -1720,6 +2064,7 @@ export class App {
     if (this.voiceTimerRunning) return;
     this.voiceTimerRunning = true;
     this._setMicActiveState(true);
+    this._setInputStatus("Listening...");
     this.voiceTimerInterval = window.setInterval(() => {
       this.voiceTimerSeconds += 1;
       this._updateVoiceTimerLabel();
@@ -1749,12 +2094,18 @@ export class App {
     this._setMicActiveState(false);
     if (reset) this.voiceTimerSeconds = 0;
     this._updateVoiceTimerLabel();
+    if (!this.saveInFlight && !this.blockerActive) this._setInputStatus("Ready");
   }
 
   _resetHomeDraftState({ resetMessages = false } = {}) {
     this._stopVoiceTimer({ reset: true, clearDraft: true });
     this._clearMockStream({ clearText: true });
-    if (resetMessages) this.messages = [];
+    if (resetMessages) {
+      this.messages = [];
+      this.replyTurn = 0;
+      this.lastWasQuestion = false;
+      this.imageContext = null;
+    }
     this.chatContents = [];
     this.analysisQuestions = [];
     this.stage.clearAll();
@@ -1762,14 +2113,130 @@ export class App {
   }
 
   _setMicActiveState(isActive) {
-    const { micBtn, agentPill } = this.dom;
+    const { micBtn, micIcon, stopIcon, agentPill, inputWrapper, audioWave } = this.dom;
     if (agentPill) {
       agentPill.classList.toggle("is-listening", isActive);
     }
+    if (inputWrapper) {
+      inputWrapper.classList.toggle("recording-mode", isActive);
+    }
+    if (audioWave) {
+      audioWave.classList.toggle("opacity-0", !isActive);
+    }
+    this.voiceBoxReactiveActive = Boolean(isActive);
+    if (isActive) {
+      this._startVoiceReactiveBox();
+    } else {
+      this._stopVoiceReactiveBox({ releaseStream: true });
+    }
     if (!micBtn) return;
     micBtn.classList.toggle("is-active", isActive);
+    micBtn.classList.toggle("is-recording", isActive);
+    micBtn.classList.toggle("recording-pulse", isActive);
+    if (micIcon) micIcon.classList.toggle("memory-icon-hidden", isActive);
+    if (stopIcon) stopIcon.classList.toggle("memory-icon-hidden", !isActive);
+    if (this.dom.memoryInput) {
+      this.dom.memoryInput.placeholder = isActive ? "Listening..." : "type here...";
+    }
     micBtn.setAttribute("aria-pressed", isActive ? "true" : "false");
+    micBtn.setAttribute("aria-label", isActive ? "Stop recording" : "Start recording");
     this._markHudDirty();
+  }
+
+  _setVoiceBoxScale(scale = 1) {
+    const inputWrapper = this.dom.inputWrapper;
+    if (!inputWrapper) return;
+    const nextScale = Number.isFinite(scale) ? Math.min(1 + VOICE_BOX_SCALE_MAX_BOOST, Math.max(1, scale)) : 1;
+    inputWrapper.style.setProperty("--voice-box-scale", nextScale.toFixed(3));
+  }
+
+  async _startVoiceReactiveBox() {
+    const inputWrapper = this.dom.inputWrapper;
+    if (!inputWrapper || this.voiceBoxMeterRaf || this.voiceBoxMeterBootPromise) return;
+    this._setVoiceBoxScale(1);
+
+    this.voiceBoxMeterBootPromise = this._ensureVoiceReactiveMeterReady();
+    const ready = await this.voiceBoxMeterBootPromise.catch(() => false);
+    this.voiceBoxMeterBootPromise = null;
+    if (!this.voiceBoxReactiveActive || !ready || !this.voiceBoxMeterAnalyser || !this.voiceBoxMeterData) {
+      this._setVoiceBoxScale(1);
+      return;
+    }
+
+    const tick = () => {
+      if (!this.voiceBoxReactiveActive || !this.voiceBoxMeterAnalyser || !this.voiceBoxMeterData) {
+        this.voiceBoxMeterRaf = null;
+        this._setVoiceBoxScale(1);
+        return;
+      }
+      this.voiceBoxMeterAnalyser.getByteTimeDomainData(this.voiceBoxMeterData);
+      let sumSq = 0;
+      for (let i = 0; i < this.voiceBoxMeterData.length; i++) {
+        const centered = (this.voiceBoxMeterData[i] - 128) / 128;
+        sumSq += centered * centered;
+      }
+      const rms = Math.sqrt(sumSq / this.voiceBoxMeterData.length);
+      const level = Math.min(1, Math.max(0, rms * 6.5 * VOICE_BOX_SENSITIVITY));
+      const scale = 1 + level * VOICE_BOX_SCALE_MAX_BOOST;
+      this._setVoiceBoxScale(scale);
+      this.voiceBoxMeterRaf = window.requestAnimationFrame(tick);
+    };
+
+    this.voiceBoxMeterRaf = window.requestAnimationFrame(tick);
+  }
+
+  async _ensureVoiceReactiveMeterReady() {
+    if (this.voiceBoxMeterAnalyser && this.voiceBoxMeterData) return true;
+    const getMedia = navigator.mediaDevices?.getUserMedia;
+    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+    if (typeof getMedia !== "function" || !AudioCtx) return false;
+
+    try {
+      this.voiceBoxMeterStream = await getMedia.call(navigator.mediaDevices, { audio: true });
+      this.voiceBoxMeterContext = new AudioCtx();
+      this.voiceBoxMeterSource = this.voiceBoxMeterContext.createMediaStreamSource(this.voiceBoxMeterStream);
+      this.voiceBoxMeterAnalyser = this.voiceBoxMeterContext.createAnalyser();
+      this.voiceBoxMeterAnalyser.fftSize = 256;
+      this.voiceBoxMeterAnalyser.smoothingTimeConstant = 0.82;
+      this.voiceBoxMeterSource.connect(this.voiceBoxMeterAnalyser);
+      this.voiceBoxMeterData = new Uint8Array(this.voiceBoxMeterAnalyser.fftSize);
+      if (this.voiceBoxMeterContext.state === "suspended") {
+        await this.voiceBoxMeterContext.resume();
+      }
+      return true;
+    } catch (err) {
+      console.warn("[voice-box] audio meter unavailable", err);
+      this._stopVoiceReactiveBox({ releaseStream: true });
+      return false;
+    }
+  }
+
+  _stopVoiceReactiveBox({ releaseStream = false } = {}) {
+    if (this.voiceBoxMeterRaf) {
+      window.cancelAnimationFrame(this.voiceBoxMeterRaf);
+      this.voiceBoxMeterRaf = null;
+    }
+    this._setVoiceBoxScale(1);
+
+    if (!releaseStream) return;
+    if (this.voiceBoxMeterSource) {
+      try {
+        this.voiceBoxMeterSource.disconnect();
+      } catch (err) {
+        // ignore disconnect race
+      }
+    }
+    if (this.voiceBoxMeterStream) {
+      this.voiceBoxMeterStream.getTracks().forEach((track) => track.stop());
+    }
+    if (this.voiceBoxMeterContext && this.voiceBoxMeterContext.state !== "closed") {
+      this.voiceBoxMeterContext.close().catch(() => {});
+    }
+    this.voiceBoxMeterSource = null;
+    this.voiceBoxMeterAnalyser = null;
+    this.voiceBoxMeterData = null;
+    this.voiceBoxMeterStream = null;
+    this.voiceBoxMeterContext = null;
   }
 
   _clearMockStream({ clearText = false } = {}) {
@@ -1788,6 +2255,47 @@ export class App {
     return parts.join(" ");
   }
 
+  _hasQuestionMark(text) {
+    return /[？?]/.test(text || "");
+  }
+
+  _shouldAskQuestion(userText) {
+    if (this.lastWasQuestion) return false;
+    const hasQuestion = this._hasQuestionMark(userText);
+    if (hasQuestion) return Math.random() < 0.3;
+    return Math.random() < 0.6;
+  }
+
+  _buildImageContextSystemText(userText) {
+    const summary =
+      (this.imageContext?.summary || this.imageAnalysis || "一张照片").replace(/[A-Za-z]/g, "");
+    const tags = Array.isArray(this.imageContext?.tags) ? this.imageContext.tags.filter(Boolean) : [];
+    const tagText = tags.length ? tags.join("、") : "照片";
+    const askDirective = this._shouldAskQuestion(userText) ? "本轮要问。" : "本轮不要问。";
+    return `当前照片背景：${summary}；关键词：${tagText}。请围绕这张照片用简体中文像朋友一样短句聊天（≤28字）。${askDirective}`;
+  }
+
+  _buildChatContentsWithContext(userText) {
+    const systemText = this._buildImageContextSystemText(userText);
+    const systemMessage = systemText ? { role: "system", parts: [{ text: systemText }] } : null;
+    if (!systemMessage) return [...this.chatContents];
+    return [systemMessage, ...this.chatContents];
+  }
+
+  _recordReplyState(replyText) {
+    this.replyTurn += 1;
+    this.lastWasQuestion = this._hasQuestionMark(replyText);
+  }
+
+  _buildFallbackReply() {
+    const summary = this.imageContext?.summary || this.imageAnalysis || "光影";
+    const subject = String(summary)
+      .replace(/[A-Za-z]/g, "")
+      .replace(/[。！？!?]/g, "")
+      .slice(0, 10) || "光影";
+    return `${subject}也太治愈了`;
+  }
+
   async _fetchChatReply(contents) {
     if (!AI_ENABLED) return "";
     const response = await fetch(buildApiUrl("/api/chat"), {
@@ -1803,7 +2311,7 @@ export class App {
   async _startMockAssistantStream() {
     if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
     this._clearMockStream({ clearText: true });
-    const fallbackReply = "我感受到一个温柔的瞬间：光线柔软、气息安稳，像是在轻轻地珍藏一段回忆。";
+    const fallbackReply = this._buildFallbackReply();
     const requestId = (this.chatRequestId += 1);
     const userText = this._buildChatUserText();
     if (userText) {
@@ -1812,7 +2320,8 @@ export class App {
     let reply = fallbackReply;
     this.stage.setTyping(true);
     try {
-      const apiText = await this._fetchChatReply(this.chatContents);
+      const requestContents = this._buildChatContentsWithContext(userText);
+      const apiText = await this._fetchChatReply(requestContents);
       if (this.chatRequestId !== requestId) return;
       if (apiText) reply = apiText;
     } catch (err) {
@@ -1822,6 +2331,7 @@ export class App {
     if (this.state?.mode !== "home") return;
     this.stage.setTyping(false);
     this.chatContents.push({ role: "model", parts: [{ text: reply }] });
+    this._recordReplyState(reply);
     this._streamRealReply(reply);
   }
 

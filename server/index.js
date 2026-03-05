@@ -11,6 +11,21 @@ dotenv.config({ path: resolve(__dirname, ".env") });
 
 const PORT = Number(process.env.PORT) || 8787;
 const MODEL = process.env.GEMINI_MODEL || "gemini-2.5-flash";
+const SERVER_BUILD_ID = "roles-debug-2026-01-30";
+const CHAT_STYLE_PROMPT = [
+  "你是照片聊天里的朋友，语气亲近自然。",
+  "输出规则：",
+  "1. 只用简体中文，不含英文字母。",
+  "2. 总字数不超过28字，最多2句。",
+  "3. 必须提到照片里的具体物体或氛围，并带情绪词。",
+  "4. 不要以“注意到”“我看出”“从图中”开头。",
+  "5. 遵守系统消息里的“本轮要问/本轮不要问”。",
+  "6. 用户提问时优先回答，追问尽量少。",
+].join("\n");
+
+
+
+
 
 
 const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
@@ -48,17 +63,166 @@ async function readResponseText(result) {
   return await Promise.resolve(candidate);
 }
 
+const EMOJI_RE = /[\p{Extended_Pictographic}\uFE0F]/u;
+const SENTENCE_END_RE = /[。！？?]/;
+
+function limitToTwoSentences(text) {
+  const parts = text.match(/[^。！？?]*[。！？?]?/g) || [];
+  const sentences = parts.map((part) => part.trim()).filter((part) => part.length > 0);
+  return sentences.slice(0, 2).join("");
+}
+
+function trimByMaxChars(text, maxChars) {
+  let count = 0;
+  let lastPunctIndex = -1;
+  let cutIndexAtMax = text.length;
+  let index = 0;
+
+  for (const ch of text) {
+    const nextIndex = index + ch.length;
+    const isEmoji = EMOJI_RE.test(ch);
+    if (!isEmoji) count += 1;
+    if (SENTENCE_END_RE.test(ch) && count <= maxChars) {
+      lastPunctIndex = nextIndex;
+    }
+    if (!isEmoji && count === maxChars) {
+      cutIndexAtMax = nextIndex;
+    }
+    index = nextIndex;
+  }
+
+  if (count <= maxChars) return text;
+  if (lastPunctIndex > 0) return text.slice(0, lastPunctIndex);
+  return text.slice(0, cutIndexAtMax);
+}
+
+function sanitizeChineseAndTrim(text, maxChars = 28) {
+  if (typeof text !== "string") return "";
+  let cleaned = text;
+  cleaned = cleaned.replace(/snoopy/gi, "史努比");
+  cleaned = cleaned.replace(/[A-Za-z]/g, "");
+  cleaned = cleaned.replace(/\s+/g, "");
+  cleaned = cleaned.replace(/^(注意到|我看出|从图中)+/, "");
+  cleaned = cleaned.replace(/^[，。！？、]+/, "");
+  cleaned = limitToTwoSentences(cleaned.trim());
+  cleaned = trimByMaxChars(cleaned, maxChars);
+  return cleaned.trim();
+}
+
+function normalizeRole(role) {
+  if (role == null) return null;
+  const normalized = String(role).toLowerCase();
+  if (normalized === "assistant") return "model";
+  if (normalized === "user" || normalized === "model") return normalized;
+  if (normalized === "system") return "system";
+  return null;
+}
+
+function extractTextFromParts(parts) {
+  if (!Array.isArray(parts)) return "";
+  return parts
+    .map((part) => (typeof part?.text === "string" ? part.text : ""))
+    .filter((text) => text.trim().length > 0)
+    .join("\n");
+}
+
+function splitSystemFromContents(contents) {
+  if (!Array.isArray(contents)) return { contentsForGemini: [], systemExtraText: "" };
+  const contentsForGemini = [];
+  const systemTexts = [];
+
+  contents.forEach((item, index) => {
+    const role = normalizeRole(item?.role);
+    if (!role) {
+      const err = new Error(`Invalid role at index ${index}. Allowed: user, model.`);
+      err.status = 400;
+      throw err;
+    }
+    if (role === "system") {
+      const systemText = extractTextFromParts(item?.parts);
+      if (systemText) systemTexts.push(systemText);
+      return;
+    }
+    contentsForGemini.push({
+      role,
+      parts: Array.isArray(item?.parts) ? item.parts : [],
+    });
+  });
+
+  return { contentsForGemini, systemExtraText: systemTexts.join("\n") };
+}
+
+function normalizeContentsForGemini(contents, systemInstruction) {
+  if (!Array.isArray(contents)) return { contents: [], systemInstruction };
+  const normalizedContents = [];
+  const systemTexts = [];
+
+  contents.forEach((item, index) => {
+    const role = normalizeRole(item?.role);
+    if (!role) {
+      const err = new Error(`Invalid role at index ${index}. Allowed: user, model.`);
+      err.status = 400;
+      throw err;
+    }
+    if (role === "system") {
+      const systemText = extractTextFromParts(item?.parts);
+      if (systemText) systemTexts.push(systemText);
+      return;
+    }
+    normalizedContents.push({
+      role,
+      parts: Array.isArray(item?.parts) ? item.parts : [],
+    });
+  });
+
+  const mergedSystem = [systemInstruction, ...systemTexts].filter(Boolean).join("\n");
+  if (!normalizedContents.length) {
+    const err = new Error("Missing user/model contents.");
+    err.status = 400;
+    throw err;
+  }
+  return { contents: normalizedContents, systemInstruction: mergedSystem || undefined };
+}
+
 async function generateStructured({ systemInstruction, contents, schema }) {
   const client = requireAi();
-  const result = await client.models.generateContent({
+  const rolesIn = Array.isArray(contents) ? contents.map((item) => item?.role) : [];
+  console.info("[gemini] roles_in=", rolesIn);
+  const normalized = normalizeContentsForGemini(contents, systemInstruction);
+  const roleList = normalized.contents.map((item) => item.role);
+  console.info("[gemini] roles_out=", roleList);
+  const invalidRoles = roleList.filter((role) => role !== "user" && role !== "model");
+  if (invalidRoles.length) {
+    const err = new Error(`Invalid roles_out: ${roleList.join(",")}`);
+    err.status = 400;
+    throw err;
+  }
+  const payloadSummary = {
     model: MODEL,
-    systemInstruction,
-    contents,
-    config: {
-      responseMimeType: "application/json",
-      responseJsonSchema: schema,
-    },
-  });
+    systemInstructionType: typeof normalized.systemInstruction,
+    contents: normalized.contents.map((item) => ({
+      role: item.role,
+      hasText: Array.isArray(item.parts) && item.parts.some((part) => typeof part?.text === "string"),
+    })),
+  };
+  let result;
+  try {
+    result = await client.models.generateContent({
+      model: MODEL,
+      contents: normalized.contents,
+      config: {
+        systemInstruction: normalized.systemInstruction,
+        responseMimeType: "application/json",
+        responseJsonSchema: schema,
+      },
+    });
+  } catch (err) {
+    const message = String(err?.message || "");
+    if (err?.status === 400 || message.toLowerCase().includes("valid role")) {
+      console.info("[gemini] payload_summary=", payloadSummary);
+    }
+    throw err;
+  }
   const rawText = await readResponseText(result);
   return JSON.parse(rawText || "{}");
 }
@@ -117,6 +281,7 @@ app.post("/api/analyze-image", upload.single("image"), async (req, res) => {
       ],
       schema: analyzeSchema,
     });
+
     const t3 = Date.now();
     console.info(`[analyze:${requestId}] model +${t3 - t2}ms total=${t3 - t0}ms`);
     res.json({
@@ -135,25 +300,19 @@ app.post("/api/chat", async (req, res) => {
   try {
     const contents = Array.isArray(req.body?.contents) ? req.body.contents : null;
     if (!contents) return res.status(400).json({ error: "Missing contents" });
+    console.info("[chat] incoming roles=", contents.map((item) => item?.role));
     const data = await generateStructured({
-      systemInstruction: `你是 Afterglow，用户亲密、共情、善于观察的朋友。
-目标是延续对话，让用户感到被理解与陪伴。
-
-行为准则：
-1. 主动好奇：如果用户发送照片，关注细节并追问“这是哪里？”“当时冷吗？”。
-2. 温暖自然：语气随和、略带梦幻，可偶尔使用表情符号。
-3. 共情回应：若用户提到孤独或失落，要先共情再回应。
-4. 保持简短：回复控制在 1-2 句。
-
-请始终使用中文回复。`,
+      systemInstruction: CHAT_STYLE_PROMPT,
       contents,
       schema: chatSchema,
     });
-    res.json({ text: typeof data.text === "string" ? data.text : "" });
+    const rawText = typeof data.text === "string" ? data.text : "";
+    res.json({ text: sanitizeChineseAndTrim(rawText, 28) });
   } catch (err) {
     const status = err?.status || 500;
     console.error("chat failed", err);
-    res.status(status).json({ error: "Chat failed" });
+    const message = status === 400 && err?.message ? err.message : "Chat failed";
+    res.status(status).json({ error: message });
   }
 });
 
@@ -205,5 +364,6 @@ Your task is to write a **First-Person Narrative Diary Entry** (in Chinese) base
 });
 
 app.listen(PORT, () => {
+  console.info("[server]", SERVER_BUILD_ID);
   console.log(`Afterglow server listening on ${PORT}`);
 });

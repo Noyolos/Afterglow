@@ -125,4 +125,31 @@ export class WebStorageProvider {
     const request = store.get(key);
     return promisifyRequest(request);
   }
+
+  async upsertMemory(record) {
+    if (!record || !record.id) throw new Error("Missing memory record");
+    const db = await this.init();
+    const tx = db.transaction(STORE_MEMORIES, "readwrite");
+    const store = tx.objectStore(STORE_MEMORIES);
+    const request = store.put(record);
+    await promisifyRequest(request);
+    return record;
+  }
 }
+
+const sharedProvider = new WebStorageProvider();
+
+export const idb = {
+  init() {
+    return sharedProvider.init();
+  },
+  getAllMemories() {
+    return sharedProvider.getMemories();
+  },
+  getAsset(key) {
+    return sharedProvider.getAsset(key);
+  },
+  updateMemory(record) {
+    return sharedProvider.upsertMemory(record);
+  },
+};
