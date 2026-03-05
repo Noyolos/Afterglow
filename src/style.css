@@ -266,12 +266,16 @@
             font-weight: 700;
         }
         .af-nav__center {
+            position: absolute;
+            left: 50%;
+            transform: translateX(calc(-50% - 18px));
             display: flex;
             gap: 24px;
             font-size: 12px;
             letter-spacing: 2px;
             text-transform: uppercase;
             color: rgba(255,255,255,0.9);
+            white-space: nowrap;
         }
         .af-nav__link {
             cursor: pointer;
