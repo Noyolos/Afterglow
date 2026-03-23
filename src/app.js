@@ -605,10 +605,6 @@ export class App {
       effectPanel,
       sliders,
       micBtn,
-      aiWidthSlider,
-      aiWidthValue,
-      aiFontSlider,
-      aiFontValue,
       voiceTimer,
       memoryInput,
       statusText,
@@ -748,32 +744,6 @@ export class App {
     }
     statusText?.classList.add("opacity-0");
     outputDisplay?.classList.add("opacity-0");
-
-    const root = document.documentElement;
-    const setAiWidth = (value) => {
-      const width = Math.max(240, Number(value) || 0);
-      const half = Math.round(width / 2);
-      root.style.setProperty("--af-ai-max-width", `${width}px`);
-      root.style.setProperty("--af-ai-half-width", `${half}px`);
-      if (aiWidthValue) aiWidthValue.textContent = `${width}px`;
-    };
-    const setAiFont = (value) => {
-      const size = Math.max(10, Number(value) || 0);
-      root.style.setProperty("--af-ai-font-size", `${size}px`);
-      if (aiFontValue) aiFontValue.textContent = `${size}px`;
-    };
-    if (aiWidthSlider) {
-      setAiWidth(aiWidthSlider.value);
-      aiWidthSlider.addEventListener("input", (e) => {
-        setAiWidth(e.target.value);
-      });
-    }
-    if (aiFontSlider) {
-      setAiFont(aiFontSlider.value);
-      aiFontSlider.addEventListener("input", (e) => {
-        setAiFont(e.target.value);
-      });
-    }
 
     landingUploadBtn?.addEventListener("click", () => {
       this._openFilePicker();
