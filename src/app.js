@@ -1347,7 +1347,12 @@ export class App {
       this._setMode("home");
     } catch (err) {
       console.warn("Failed to process upload", err);
-      alert(this.language === "zh" ? "AI 没有成功分析这张图。请确认后端已启动，然后重试。" : "AI could not analyze this image. Make sure the backend is running, then try again.");
+      const detail = typeof err?.message === "string" && err.message.trim() ? err.message.trim() : "";
+      alert(
+        this.language === "zh"
+          ? `AI 没有成功分析这张图。${detail ? `\n\n错误：${detail}` : ""}`
+          : `AI could not analyze this image.${detail ? `\n\nError: ${detail}` : ""}`
+      );
     } finally {
       if (loading) loading.style.opacity = 0;
       this._setSaveBlockerVisible(false);
@@ -1715,7 +1720,7 @@ export class App {
   _isGenericOpeningText(text) {
     const normalized = this._normalizeOpeningText(text, 80).replace(/[。！？!?]/g, "");
     if (!normalized) return true;
-    return /(光影像把情绪|情绪也一起收住|如果你愿意|慢慢和我说|柔和的光线|安静的色调|静谧的氛围|温暖的色温|沉稳的气息|一张安静的照片|这张图|这张照片|背景是|天空中|画面里|画面中|装饰着|布满|位于|展示了)/.test(
+    return /(光影像把情绪|情绪也一起收住|如果你愿意|慢慢和我说|柔和的光线|安静的色调|静谧的氛围|温暖的色温|沉稳的气息|一张安静的照片|这张图|这张照片|背景是|天空中|画面里|画面中|装饰着|布满|位于|展示了|soft light|quiet tones|quiet image|if you want|tell me about it|in the background|the sky contains|the image shows|decorated with|filled with|located in)/i.test(
       normalized
     );
   }
@@ -2383,7 +2388,9 @@ export class App {
     }
     if (this.imageAnalysis) parts.push(`Photo cues: ${this.imageAnalysis}.`);
     if (this.analysisQuestions.length) parts.push(`Possible follow-up tone: ${this.analysisQuestions.join(" / ")}.`);
-    parts.push("Please respond like a close friend. Start with a gentle statement, avoid interview-style questions, and do not overclaim what is in the image.");
+    parts.push(
+      "Please receive me gently first. Prefer a natural statement over a question, do not sound like an interview, and do not overclaim what is in the image."
+    );
     return parts.join(" ");
   }
 
@@ -2461,14 +2468,14 @@ export class App {
       "You are in Afterglow, helping the user sit with this photo like a close friend would.",
       `Photo context: ${summary}. Keywords: ${tagText}.`,
       userLine,
-      "Start with a gentle statement that responds to the feeling, then lightly return to the person, place, action, or atmosphere in the image.",
+      "Start with a gentle statement that receives the feeling, then lightly return to the person, scene, action, or atmosphere in the image.",
       recentQuestion,
       askDirective,
       "If you are unsure about the subject, medium, place, or work type, do not overclaim.",
       "If the image clearly resembles a famous work or recognizable character, you can say it naturally.",
-      "If unsure, mention colors, light, lines, or mood first, then lightly confirm what it is.",
+      "If unsure, mention colors, light, lines, texture, or mood first, then lightly confirm what it is.",
       "Avoid repeating your own phrasing from the previous turn.",
-      "Avoid interview-style questions.",
+      "Avoid interview-style questions such as 'what drew you to it' or 'what do you want to hold on to'.",
       "Do not lecture, interrogate, or use vague comfort phrases.",
       "Reply in natural English.",
     ]
