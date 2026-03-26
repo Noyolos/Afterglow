@@ -35,17 +35,17 @@ function buildApiUrl(path) {
   return `${API_BASE}${suffix}`;
 }
 const AI_ENABLED = true;
-const VOICE_RECOGNITION_LANG = "zh-CN";
-const VOICE_CHINESE_ONLY = true;
 const VOICE_BOX_SENSITIVITY = 1.3;
 const VOICE_BOX_SCALE_MAX_BOOST = 0.12;
 const CHINESE_CHAR_RE = /[\u4e00-\u9fff]/;
+const LATIN_CHAR_RE = /[A-Za-z]/;
 const HOME_PROMPT_DEFAULT = "";
-const HOME_PROMPT_FALLBACK_QUESTIONS = [];
 const DIARY_FALLBACK_SUMMARY = "一个安静的瞬间，被光与流动轻轻收录。";
 
 const memoryCalendar = new MemoryCalendar();
 const memoryGallery = new MemoryGallery();
+const HOME_VIEW_DISTANCE_DEFAULT = 2.8;
+const HALL_VIEW_DISTANCE_DEFAULT = 4.4;
 
 // Keep defaults close to your prototype
 const DEFAULT_SETTINGS = {
@@ -59,7 +59,7 @@ const DEFAULT_SETTINGS = {
   stableRadius: 0.44,
   brightness: 1.7,
   contrast: 1.3,
-  viewDistance: 2.8,
+  viewDistance: HOME_VIEW_DISTANCE_DEFAULT,
   galleryGap: 2.2,
 };
 
@@ -93,7 +93,77 @@ const RING_DEFAULTS = {
 
 const RENDER_MODE_KEY = "afterglow_render_mode";
 const HAS_UPLOADED_KEY = "afterglow_has_uploaded_once";
+const LANGUAGE_KEY = "afterglow_language";
 const DEFAULT_RENDER_MODE = "kolam";
+const DEFAULT_LANGUAGE = "zh";
+const LANGUAGE_CONFIG = Object.freeze({
+  zh: Object.freeze({
+    code: "zh",
+    htmlLang: "zh-CN",
+    label: "中文",
+    chip: "中文",
+    menuTitle: "语言",
+    typing: "正在输入…",
+    listening: "正在聆听…",
+    ready: "准备好了",
+    listeningShort: "正在听…",
+    thinking: "在想了…",
+    uploadFirst: "先上传一张照片",
+    waitOpening: "先让我看一眼这张图",
+    saveMemory: "正在保存记忆…",
+    analyzingImage: "正在分析图片…",
+    uploadToStart: "上传一张照片开始",
+    noSpeech: "没有听清，再说一次",
+    micPermissionDenied: "麦克风权限被拒绝",
+    recordingFailed: "录音失败",
+    noResponse: "这次没有拿到回复，请再试一次。",
+    connectionFailed: "这次没有连上 AI，请重试。",
+    speechUnsupported: "当前浏览器不支持语音识别",
+    stopRecording: "正在停止…",
+    unableToStartMic: "麦克风启动失败",
+    transcriptPrefix: "转写",
+    inputPlaceholder: "在这里说点什么…",
+    startRecordingLabel: "开始录音",
+    stopRecordingLabel: "停止录音",
+    locale: "zh-CN",
+    voiceLang: "zh-CN",
+    restrictVoiceToChinese: true,
+    systemLanguageName: "简体中文",
+  }),
+  en: Object.freeze({
+    code: "en",
+    htmlLang: "en",
+    label: "English",
+    chip: "EN",
+    menuTitle: "Language",
+    typing: "Thinking…",
+    listening: "Listening…",
+    ready: "Ready",
+    listeningShort: "Listening…",
+    thinking: "Thinking...",
+    uploadFirst: "Upload a photo first",
+    waitOpening: "Wait for the opening line",
+    saveMemory: "Saving memory...",
+    analyzingImage: "Analyzing image...",
+    uploadToStart: "Upload a photo to start",
+    noSpeech: "No speech detected",
+    micPermissionDenied: "Mic permission denied",
+    recordingFailed: "Recording failed",
+    noResponse: "No response this time. Try again.",
+    connectionFailed: "Could not reach AI. Try again.",
+    speechUnsupported: "Speech recognition unsupported",
+    stopRecording: "Stopping...",
+    unableToStartMic: "Unable to start mic",
+    transcriptPrefix: "Transcript",
+    inputPlaceholder: "type here...",
+    startRecordingLabel: "Start recording",
+    stopRecordingLabel: "Stop recording",
+    locale: "en-US",
+    voiceLang: "en-US",
+    restrictVoiceToChinese: false,
+    systemLanguageName: "English",
+  }),
+});
 const RENDER_MODE_PRESETS = {
   kolam: { stipple: 0.8, halo: 0.45, grain: 0.4, layered: 0.0, layerDepth: 0.0, layerNoiseDepth: 0.0 },
   halo: { stipple: 0.15, halo: 0.9, grain: 0.2, layered: 0.0, layerDepth: 0.0, layerNoiseDepth: 0.0 },
@@ -151,11 +221,39 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function filterVoiceText(text) {
+function normalizeLanguage(language) {
+  return language === "en" ? "en" : DEFAULT_LANGUAGE;
+}
+
+function getLanguageConfig(language) {
+  return LANGUAGE_CONFIG[normalizeLanguage(language)];
+}
+
+function readLanguage() {
+  try {
+    return normalizeLanguage(localStorage.getItem(LANGUAGE_KEY));
+  } catch (err) {
+    return DEFAULT_LANGUAGE;
+  }
+}
+
+function writeLanguage(language) {
+  try {
+    localStorage.setItem(LANGUAGE_KEY, normalizeLanguage(language));
+  } catch (err) {
+    // ignore storage failures
+  }
+}
+
+function filterVoiceText(text, { restrictToChinese = true } = {}) {
   if (typeof text !== "string") return "";
   const trimmed = text.trim();
   if (!trimmed) return "";
-  if (!VOICE_CHINESE_ONLY) return trimmed;
+  if (!restrictToChinese) {
+    const filtered = trimmed.replace(/[^\p{L}\p{N}\s.,!?'"，。！？、：；《》【】（）\-—]/gu, "");
+    const normalized = filtered.replace(/\s+/g, " ").trim();
+    return LATIN_CHAR_RE.test(normalized) || CHINESE_CHAR_RE.test(normalized) ? normalized : "";
+  }
   const filtered = trimmed.replace(
     /[^\u4e00-\u9fff\u3000-\u303f\uff00-\uffef0-9\s.,!?'"，。！？、：；《》【】（）\-—]/g,
     ""
@@ -309,20 +407,26 @@ function disposeTexture(texture) {
   }
 }
 
-const TYPING_INDICATOR_TEXT = "对方正在输入…";
-const LISTENING_INDICATOR_TEXT = "正在聆听...";
-
 class CenterStageController {
-  constructor(dom) {
+  constructor(dom, languageConfig) {
     this.root = dom?.centerStage || null;
     this.aiBubble = dom?.homePrompt || null;
     this.userBubble = dom?.userBubble || null;
     this.typingIndicator = dom?.typingIndicator || null;
-    this.defaultTypingText = TYPING_INDICATOR_TEXT;
+    this.defaultTypingText = languageConfig?.typing || "Thinking…";
+    this.defaultListeningText = languageConfig?.listening || "Listening…";
     this.noticeMode = "none";
     if (this.typingIndicator && !this.typingIndicator.textContent.trim()) {
       this.typingIndicator.textContent = this.defaultTypingText;
     }
+  }
+
+  setLanguage(languageConfig) {
+    this.defaultTypingText = languageConfig?.typing || this.defaultTypingText;
+    this.defaultListeningText = languageConfig?.listening || this.defaultListeningText;
+    if (this.noticeMode === "typing") this._setTypingText(this.defaultTypingText);
+    if (this.noticeMode === "listening") this._setTypingText(this.defaultListeningText);
+    if (!this.noticeMode || this.noticeMode === "none") this._setTypingText(this.defaultTypingText);
   }
 
   setVisible(isVisible) {
@@ -382,7 +486,7 @@ class CenterStageController {
   setListening(isActive, text) {
     if (isActive) {
       if (this.noticeMode === "typing" || this.noticeMode === "system") return;
-      this._showNotice(text || LISTENING_INDICATOR_TEXT, "listening");
+      this._showNotice(text || this.defaultListeningText, "listening");
       return;
     }
     this._hideNotice("listening");
@@ -448,8 +552,9 @@ export class App {
     this.storage = new WebStorageProvider();
     this.textureLoader = new THREE.TextureLoader();
     this.desiredTarget = new THREE.Vector3(0, 0, 0);
+    this.language = readLanguage();
     this.defaultHomePrompt = this.dom.homePrompt?.textContent || HOME_PROMPT_DEFAULT;
-    this.stage = new CenterStageController(this.dom);
+    this.stage = new CenterStageController(this.dom, this._languageConfig());
     this.memoryCalendar = memoryCalendar;
     this.memoryGallery = memoryGallery;
     this.voiceTimerSeconds = 0;
@@ -464,9 +569,8 @@ export class App {
     this.chatContents = [];
     this.chatRequestId = 0;
     this.mockStreamInterval = null;
-    this.mockDiaryTimer = null;
-    this.mockDiaryResolve = null;
     this.saveInFlight = false;
+    this.languageMenuOpen = false;
     this.analysisTraceId = 0;
     this.hasUploadedOnce = readHasUploadedFlag();
     this.blockerActive = false;
@@ -516,6 +620,7 @@ export class App {
     };
     this.hallFov = HALL_FOV_DEFAULT;
     this.hallOpacityBase = CAROUSEL.opacityBase;
+    this.hallViewDistance = HALL_VIEW_DISTANCE_DEFAULT;
     this.homeSettings = {
       zoom: this.settings.viewDistance,
       yOffset: 0.05,
@@ -539,6 +644,7 @@ export class App {
 
     this._initThree();
     this._initUI();
+    this._applyLanguageUI({ syncRecognition: true });
     this.setRenderMode(this.renderMode, { persist: false });
     this._initEvents();
     this._initStorage();
@@ -548,6 +654,84 @@ export class App {
 
   start() {
     this._animate();
+  }
+
+  _languageConfig() {
+    return getLanguageConfig(this.language);
+  }
+
+  _t(key) {
+    return this._languageConfig()?.[key] || "";
+  }
+
+  _updateDocumentLanguage() {
+    document.documentElement.lang = this._languageConfig().htmlLang;
+  }
+
+  _setLanguageMenuOpen(isOpen) {
+    const { agentPill, languageMenu } = this.dom;
+    this.languageMenuOpen = Boolean(isOpen);
+    if (agentPill) agentPill.setAttribute("aria-expanded", this.languageMenuOpen ? "true" : "false");
+    if (languageMenu) {
+      languageMenu.hidden = !this.languageMenuOpen;
+      languageMenu.setAttribute("aria-hidden", this.languageMenuOpen ? "false" : "true");
+      languageMenu.classList.toggle("is-open", this.languageMenuOpen);
+    }
+  }
+
+  _updateLanguageMenuUI() {
+    const { languageChip, languageMenuTitle, langZhBtn, langEnBtn } = this.dom;
+    const config = this._languageConfig();
+    if (languageChip) languageChip.textContent = config.chip;
+    if (languageMenuTitle) languageMenuTitle.textContent = config.menuTitle;
+    if (langZhBtn) langZhBtn.classList.toggle("is-active", this.language === "zh");
+    if (langEnBtn) langEnBtn.classList.toggle("is-active", this.language === "en");
+  }
+
+  _applyLanguageUI({ syncRecognition = false } = {}) {
+    const config = this._languageConfig();
+    this._updateDocumentLanguage();
+    this.stage.setLanguage(config);
+    this._updateLanguageMenuUI();
+
+    if (this.dom.homePrompt) this.dom.homePrompt.textContent = this._t("uploadToStart");
+    if (this.dom.memoryInput && !(this.voiceTimerRunning || this.isRecognizing)) {
+      this.dom.memoryInput.placeholder = this._t("inputPlaceholder");
+    }
+    if (!this._hasSessionImage()) {
+      this._setInputStatus(this._t("uploadToStart"));
+    } else if (!this.saveInFlight && !this.blockerActive && !this.voiceTimerRunning && !this.isRecognizing) {
+      this._setInputStatus(this._t("ready"));
+    }
+    this._updateVoiceTimerLabel();
+    this._markHudDirty();
+
+    if (syncRecognition) this._syncRecognitionLanguage();
+  }
+
+  _setLanguage(language, { persist = true } = {}) {
+    const next = normalizeLanguage(language);
+    if (next === this.language) {
+      this._setLanguageMenuOpen(false);
+      return;
+    }
+    this.language = next;
+    if (persist) writeLanguage(next);
+    if (this.voiceTimerRunning || this.isRecognizing) {
+      this._stopVoiceTimer({ reset: true, clearDraft: true });
+    }
+    this._applyLanguageUI({ syncRecognition: true });
+    this._setLanguageMenuOpen(false);
+  }
+
+  _syncRecognitionLanguage() {
+    if (this.recognition) {
+      this.recognition.lang = this._languageConfig().voiceLang;
+    }
+  }
+
+  _filterVoiceText(text) {
+    return filterVoiceText(text, { restrictToChinese: this._languageConfig().restrictVoiceToChinese });
   }
 
   _initThree() {
@@ -610,14 +794,16 @@ export class App {
       statusText,
       outputDisplay,
       saveMemoryBtn,
-      archiveBtn,
       closeVoiceBtn,
       landingUploadBtn,
-      navInfo,
+      agentPill,
+      languageMenu,
+      langZhBtn,
+      langEnBtn,
+      navHall,
       navCalendar,
       calendarOpenDayBtn,
       calendarBackHomeBtn,
-      infoClose,
       renderToggle,
       renderKolam,
       renderHalo,
@@ -650,6 +836,10 @@ export class App {
     stopToggleEvent(diaryModal);
     stopToggleEvent(diaryModalClose);
     stopToggleEvent(diaryModalShare);
+    stopToggleEvent(agentPill);
+    stopToggleEvent(languageMenu);
+    stopToggleEvent(langZhBtn);
+    stopToggleEvent(langEnBtn);
 
     renderKolam?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -740,10 +930,39 @@ export class App {
 
     if (voiceTimer) this._updateVoiceTimerLabel();
     if (statusText && !statusText.textContent.trim()) {
-      statusText.textContent = "Listening...";
+      statusText.textContent = this._t("listening");
     }
     statusText?.classList.add("opacity-0");
     outputDisplay?.classList.add("opacity-0");
+
+    agentPill?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setLanguageMenuOpen(!this.languageMenuOpen);
+    });
+    agentPill?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        this._setLanguageMenuOpen(!this.languageMenuOpen);
+      }
+      if (e.key === "Escape") this._setLanguageMenuOpen(false);
+    });
+    langZhBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setLanguage("zh");
+    });
+    langEnBtn?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setLanguage("en");
+    });
+    document.addEventListener("pointerdown", (e) => {
+      if (!this.languageMenuOpen) return;
+      const target = e.target;
+      if (agentPill?.contains(target) || languageMenu?.contains(target)) return;
+      this._setLanguageMenuOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") this._setLanguageMenuOpen(false);
+    });
 
     landingUploadBtn?.addEventListener("click", () => {
       this._openFilePicker();
@@ -772,15 +991,15 @@ export class App {
     saveMemoryBtn?.addEventListener("click", () => {
       this._handleSaveMemory();
     });
-    archiveBtn?.addEventListener("click", () => {
-      this._handleSaveMemory();
-    });
     closeVoiceBtn?.addEventListener("click", () => {
       this._stopVoiceTimer();
     });
-    navInfo?.addEventListener("click", () => {
-      if (this.saveInFlight) return;
-      this._setInfoOpen(true);
+    navHall?.addEventListener("click", () => {
+      if (this.saveInFlight || this.blockerActive) return;
+      this._hideMemoryViews();
+      this._setMainUIVisible(true);
+      this._setInfoOpen(false);
+      this._enterHall();
     });
     navCalendar?.addEventListener("click", () => {
       if (this.saveInFlight || this.blockerActive) return;
@@ -795,9 +1014,6 @@ export class App {
       this._hideMemoryViews();
       this._setMainUIVisible(true);
       this._syncHomeActionState();
-    });
-    infoClose?.addEventListener("click", () => {
-      this._setInfoOpen(false);
     });
 
     if (enterHallBtn) {
@@ -901,7 +1117,7 @@ export class App {
     if (!SpeechRecognition) return;
 
     this.recognition = new SpeechRecognition();
-    this.recognition.lang = VOICE_RECOGNITION_LANG;
+    this.recognition.lang = this._languageConfig().voiceLang;
     this.recognition.interimResults = true;
     this.recognition.continuous = true;
 
@@ -911,7 +1127,7 @@ export class App {
       this.voiceInterim = "";
       this._renderVoiceDraft();
       this.stage.setListening(true);
-      this._setInputStatus("Listening...");
+      this._setInputStatus(this._t("listeningShort"));
 
       if (!this.voiceTimerInterval) {
         this.voiceTimerSeconds = 0;
@@ -938,10 +1154,10 @@ export class App {
       if (shouldCommit && finalText) {
         this._handleUserVoiceInput(finalText);
       } else if (shouldCommit) {
-        this.stage.showSystem("请用中文描述你的想法。");
-        this._setInputStatus("No speech detected");
+        this.stage.showSystem(this._t("noSpeech"));
+        this._setInputStatus(this._t("noSpeech"));
       } else {
-        this._setInputStatus("Ready");
+        this._setInputStatus(this._t("ready"));
       }
       this.voiceInterim = "";
       this._renderVoiceDraft();
@@ -958,11 +1174,11 @@ export class App {
         else interim += event.results[i][0].transcript;
       }
 
-      const cleanedFinal = filterVoiceText(finalText);
+      const cleanedFinal = this._filterVoiceText(finalText);
       if (cleanedFinal) {
         this.voiceDraft = this.voiceDraft ? `${this.voiceDraft} ${cleanedFinal}` : cleanedFinal;
       }
-      this.voiceInterim = filterVoiceText(interim);
+      this.voiceInterim = this._filterVoiceText(interim);
       this._renderVoiceDraft();
     };
 
@@ -970,12 +1186,12 @@ export class App {
       console.warn("[speech] onerror", event.error);
       if (event.error === "not-allowed") {
         this._stopVoiceTimer({ reset: true });
-        this._setInputStatus("Mic permission denied");
+        this._setInputStatus(this._t("micPermissionDenied"));
         return;
       }
       if (["aborted", "audio-capture", "network"].includes(event.error)) {
         this._stopVoiceTimer();
-        this._setInputStatus("Recording failed");
+        this._setInputStatus(this._t("recordingFailed"));
       }
     };
   }
@@ -988,15 +1204,15 @@ export class App {
     this.chatContents.push({ role: "user", parts: [{ text: finalText }] });
     this._clearVoiceDraft({ hide: true });
     this._setOutputDisplay(`"${finalText}"`, { autohideMs: 4000 });
-    this._setInputStatus("Thinking...");
+    this._setInputStatus(this._t("thinking"));
 
     this.stage.setTyping(true);
     try {
       const requestContents = this._buildChatContentsWithContext(finalText);
       const replyText = await this._fetchChatReply(requestContents);
       if (!replyText) {
-        this.stage.showSystem("连接失败。");
-        this._setInputStatus("No response");
+        this.stage.showSystem(this._t("noResponse"));
+        this._setInputStatus(this._t("noResponse"));
         return;
       }
       this.messages.push({ role: "model", content: replyText });
@@ -1005,11 +1221,11 @@ export class App {
       this.stage.setTyping(false);
       this._streamRealReply(replyText);
       this._setOutputDisplay(`"${replyText}"`, { autohideMs: 4000 });
-      this._setInputStatus("Ready");
+      this._setInputStatus(this._t("ready"));
     } catch (err) {
       console.error("Chat failed", err);
-      this.stage.showSystem("连接失败。");
-      this._setInputStatus("Connection failed");
+      this.stage.showSystem(this._t("connectionFailed"));
+      this._setInputStatus(this._t("connectionFailed"));
     }
   }
 
@@ -1018,7 +1234,7 @@ export class App {
     const text = memoryInput?.value?.trim() || "";
     if (text.length > 0) {
       if (!this._hasSessionImage()) {
-        this._setInputStatus("Upload a photo first");
+        this._setInputStatus(this._t("uploadFirst"));
         return;
       }
       if (memoryInput) memoryInput.value = "";
@@ -1030,14 +1246,14 @@ export class App {
       (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
     );
     if (!this._hasSessionImage()) {
-      this._setInputStatus("Upload a photo first");
+      this._setInputStatus(this._t("uploadFirst"));
       return;
     }
     if (!hasOpeningLine) {
-      this._setInputStatus("Wait for AI opening line");
+      this._setInputStatus(this._t("waitOpening"));
       return;
     }
-    this._setInputStatus("Saving memory...");
+    this._setInputStatus(this._t("saveMemory"));
     await this._handleSaveMemory();
   }
 
@@ -1096,7 +1312,7 @@ export class App {
     const { loading } = this.dom;
     if (!file) return;
     if (this.saveInFlight || this.blockerActive) return;
-    this._setSaveBlockerVisible(true, "Analyzing image...");
+    this._setSaveBlockerVisible(true, this._t("analyzingImage"));
     const analysisTrace = this._startAnalysisTrace(file);
     const analysisPromise = this._getImageAnalysis(file, analysisTrace);
     if (loading) loading.style.opacity = 1;
@@ -1118,8 +1334,8 @@ export class App {
       const caption = analysis?.caption || "";
       this.imageAnalysis = caption;
       this.imageContext = this._buildImageContext(analysis || {});
-      this._setOpeningLineFromAnalysis(analysis || {});
       this._setHomePromptQuestions(analysis?.questions);
+      this._setOpeningLineFromAnalysis(analysis || {});
       this._markAnalysisTrace(analysisTrace, "t4_ui", `captionLen=${caption.length}`);
       this._logAnalysisSummary(analysisTrace);
 
@@ -1131,7 +1347,7 @@ export class App {
       this._setMode("home");
     } catch (err) {
       console.warn("Failed to process upload", err);
-      alert("Could not process image. Please try a different file.");
+      alert(this.language === "zh" ? "AI 没有成功分析这张图。请确认后端已启动，然后重试。" : "AI could not analyze this image. Make sure the backend is running, then try again.");
     } finally {
       if (loading) loading.style.opacity = 0;
       this._setSaveBlockerVisible(false);
@@ -1149,7 +1365,7 @@ export class App {
 
     this.saveInFlight = true;
     this._syncHomeActionState();
-    this._setSaveBlockerVisible(true, "Generating diary...");
+    this._setSaveBlockerVisible(true, this.language === "zh" ? "正在生成日记…" : "Generating diary...");
     this._stopVoiceTimer();
     this._clearMockStream({ clearText: false });
 
@@ -1180,7 +1396,7 @@ export class App {
       flowCompleted = true;
     } catch (err) {
       console.warn("Failed to save memory", err);
-      alert("Could not save memory. Please try again.");
+      alert(this.language === "zh" ? "保存记忆失败，请重试。" : "Could not save memory. Please try again.");
     } finally {
       this.saveInFlight = false;
       if (!flowCompleted) {
@@ -1412,39 +1628,25 @@ export class App {
     };
   }
 
-  _setHomePromptQuestions(questions, { useFallback = true } = {}) {
+  _setHomePromptQuestions(questions) {
     const normalized = Array.isArray(questions)
       ? questions
           .filter((item) => typeof item === "string")
           .map((item) => item.trim())
           .filter((item) => item.length > 0)
       : [];
-    let nextQuestions = normalized;
-    if (useFallback && nextQuestions.length < 2) {
-      nextQuestions = HOME_PROMPT_FALLBACK_QUESTIONS.slice(0, 3);
-    } else if (nextQuestions.length > 3) {
-      nextQuestions = nextQuestions.slice(0, 3);
-    }
-    this.analysisQuestions = nextQuestions;
+    this.analysisQuestions = normalized.slice(0, 3);
   }
 
   async _getImageAnalysis(file, trace) {
-    if (!AI_ENABLED) {
-      const caption = await this._simulateImageAnalysis();
-      return { vibe: "", caption, questions: HOME_PROMPT_FALLBACK_QUESTIONS };
-    }
-    try {
-      return await this._fetchImageAnalysis(file, trace);
-    } catch (err) {
-      console.warn("Image analysis failed; using fallback.", err);
-      const caption = await this._simulateImageAnalysis();
-      return { vibe: "", caption, questions: HOME_PROMPT_FALLBACK_QUESTIONS };
-    }
+    if (!AI_ENABLED) throw new Error("AI_DISABLED");
+    return await this._fetchImageAnalysis(file, trace);
   }
 
   async _fetchImageAnalysis(file, trace) {
     const formData = new FormData();
     formData.append("image", file);
+    formData.append("language", this.language);
     if (trace) {
       trace.t2 = performance.now();
       console.info(`[analysis:${trace.id}] t2_fetch_start +${Math.round(trace.t2 - trace.t0)}ms`);
@@ -1458,7 +1660,14 @@ export class App {
         `[analysis:${trace.id}] t3_headers +${ttfb}ms status=${response.status} len=${len || "?"}`
       );
     }
-    if (!response.ok) throw new Error("Analyze request failed");
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const data = await response.json();
+        detail = typeof data?.error === "string" ? data.error : "";
+      } catch {}
+      throw new Error(detail || `Analyze request failed (${response.status})`);
+    }
     const data = await response.json();
     if (trace) {
       trace.t3json = performance.now();
@@ -1469,81 +1678,59 @@ export class App {
     return {
       vibe: typeof data.vibe === "string" ? data.vibe : "",
       caption: typeof data.caption === "string" ? data.caption : "",
+      opener: typeof data.opener === "string" ? data.opener : "",
       questions: Array.isArray(data.questions) ? data.questions.filter((q) => typeof q === "string") : [],
     };
-  }
-
-  _simulateImageAnalysis() {
-    const options = [
-      "柔和的光线、居中的主体、安静的色调",
-      "轻微对比、稳定的焦点、静谧的氛围",
-      "温暖的色温、柔和的阴影、亲密的构图",
-      "干净的线条、低饱和的颜色、沉稳的气息",
-    ];
-    const delay = 1200 + Math.random() * 800;
-    const choice = options[Math.floor(Math.random() * options.length)];
-    return new Promise((resolve) => {
-      window.setTimeout(() => resolve(choice), delay);
-    });
   }
 
   _buildImageContext(analysis = {}) {
     const caption = typeof analysis.caption === "string" ? analysis.caption.trim() : "";
     const vibe = typeof analysis.vibe === "string" ? analysis.vibe.trim() : "";
-    const summarySource = caption || vibe || "一张安静的照片";
-    const summary = summarySource.replace(/[A-Za-z]/g, "").replace(/[。！？!?]/g, "").trim().slice(0, 18);
+    const summarySource = caption || vibe || (this.language === "zh" ? "一张安静的照片" : "A quiet image");
+    const summary =
+      this.language === "zh"
+        ? summarySource.replace(/[A-Za-z]/g, "").replace(/[。！？!?]/g, "").trim().slice(0, 18)
+        : summarySource.replace(/[。！？!?]/g, "").trim().slice(0, 28);
     const tags = [];
     const addTag = (tag) => {
-      const normalized = String(tag || "")
-        .replace(/[A-Za-z]/g, "")
-        .replace(/[，,。！？!?]/g, "")
-        .trim()
-        .slice(0, 6);
+      const raw = String(tag || "").replace(/[，,。！？!?]/g, "").trim();
+      const normalized =
+        this.language === "zh" ? raw.replace(/[A-Za-z]/g, "").slice(0, 6) : raw.slice(0, 10);
       if (!normalized || tags.includes(normalized)) return;
       tags.push(normalized);
     };
     addTag(vibe);
     if (caption && caption !== vibe) addTag(caption);
-    while (tags.length < 2) addTag(tags.length === 0 ? "光影" : "氛围");
-    return { summary: summary || "一张安静的照片", tags: tags.slice(0, 2) };
+    while (tags.length < 2) addTag(tags.length === 0 ? (this.language === "zh" ? "光影" : "light") : this.language === "zh" ? "氛围" : "mood");
+    return { summary: summary || (this.language === "zh" ? "一张安静的照片" : "A quiet image"), tags: tags.slice(0, 2) };
+  }
+
+  _normalizeOpeningText(text, maxLength = 40) {
+    return String(text || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, maxLength);
+  }
+
+  _isGenericOpeningText(text) {
+    const normalized = this._normalizeOpeningText(text, 80).replace(/[。！？!?]/g, "");
+    if (!normalized) return true;
+    return /(光影像把情绪|情绪也一起收住|如果你愿意|慢慢和我说|柔和的光线|安静的色调|静谧的氛围|温暖的色温|沉稳的气息|一张安静的照片|这张图|这张照片|背景是|天空中|画面里|画面中|装饰着|布满|位于|展示了)/.test(
+      normalized
+    );
   }
 
   _buildOpeningLine(analysis) {
-    const caption =
-      typeof analysis === "string"
-        ? analysis
-        : typeof analysis?.caption === "string"
-        ? analysis.caption
-        : "";
-    const cleaned = String(caption)
-      .replace(/[A-Za-z]/g, "")
-      .replace(/[。！？!?]/g, "")
-      .replace(/^[，,、\s]+/, "")
-      .trim();
-    const subject = cleaned.slice(0, 10) || "光影";
-    const vibeTextParts = [];
-    if (typeof analysis?.vibe === "string") vibeTextParts.push(analysis.vibe);
-    if (Array.isArray(analysis?.tags)) vibeTextParts.push(...analysis.tags);
-    if (Array.isArray(this.imageContext?.tags)) vibeTextParts.push(...this.imageContext.tags);
-    const vibeText = vibeTextParts.join("");
-    const endings = ["也太治愈了", "好浪漫", "好温柔", "有点想笑", "氛围感拉满"];
-    const emojis = ["✨", "", "", "️", ""];
-    let ending = "";
-    if (vibeText.includes("浪漫")) ending = "好浪漫";
-    else if (vibeText.includes("温柔") || vibeText.includes("柔和")) ending = "好温柔";
-    else if (vibeText.includes("治愈") || vibeText.includes("温暖") || vibeText.includes("暖")) ending = "也太治愈了";
-    else if (vibeText.includes("笑") || vibeText.includes("开心") || vibeText.includes("快乐")) ending = "有点想笑";
-    else if (vibeText.includes("氛围") || vibeText.includes("夜") || vibeText.includes("灯"))
-      ending = "氛围感拉满";
-    if (!ending) {
-      const seed = hashStringToSeed(subject + vibeText);
-      const index = Math.floor(seed * endings.length) % endings.length;
-      ending = endings[index];
+    const modelOpener = this._normalizeOpeningText(analysis?.opener, 40);
+    if (modelOpener && !this._isGenericOpeningText(modelOpener)) {
+      return /[。！？!?]$/.test(modelOpener) ? modelOpener : `${modelOpener}。`;
     }
-    const emojiSeed = hashStringToSeed(subject + ending);
-    const emojiIndex = Math.floor(emojiSeed * emojis.length) % emojis.length;
-    const emoji = emojis[emojiIndex];
-    return `${subject}${ending}${emoji}`;
+
+    const caption = this._normalizeOpeningText(analysis?.caption || this.imageContext?.summary, 36);
+    if (caption && !this._isGenericOpeningText(caption)) {
+      return /[。！？!?]$/.test(caption) ? caption : `${caption}。`;
+    }
+    throw new Error("EMPTY_OPENING_LINE");
   }
 
   _setOpeningLineFromAnalysis(analysis) {
@@ -1556,40 +1743,20 @@ export class App {
     return line;
   }
 
-  _clearMockDiaryTimer() {
-    if (this.mockDiaryTimer) {
-      clearTimeout(this.mockDiaryTimer);
-      this.mockDiaryTimer = null;
-    }
-    if (this.mockDiaryResolve) {
-      this.mockDiaryResolve(null);
-      this.mockDiaryResolve = null;
-    }
-  }
-
-  _simulateDiaryGeneration({ transcript }) {
-    this._clearMockDiaryTimer();
-    return new Promise((resolve) => {
-      this.mockDiaryResolve = resolve;
-      const delay = 2000 + Math.random() * 2000;
-      this.mockDiaryTimer = window.setTimeout(() => {
-        this.mockDiaryTimer = null;
-        const nextCard = this._createMockDiaryCard({ transcript });
-        const diaryText = nextCard.summary || transcript || DIARY_FALLBACK_SUMMARY;
-        const finalize = this.mockDiaryResolve;
-        this.mockDiaryResolve = null;
-        if (finalize) finalize({ diaryCard: nextCard, diaryText, highlights: [] });
-      }, delay);
-    });
-  }
-
   async _fetchDiaryResponse({ transcriptText, dateISO }) {
     const response = await fetch(buildApiUrl("/api/generate-diary"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ transcriptText, dateISO }),
+      body: JSON.stringify({ transcriptText, dateISO, language: this.language }),
     });
-    if (!response.ok) throw new Error("Diary request failed");
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const data = await response.json();
+        detail = typeof data?.error === "string" ? data.error : "";
+      } catch {}
+      throw new Error(detail || `Diary request failed (${response.status})`);
+    }
     return await response.json();
   }
 
@@ -1621,16 +1788,9 @@ export class App {
 
   async _getDiaryResultForSave(transcript) {
     const dateISO = new Date().toISOString();
-    if (!AI_ENABLED) {
-      return this._simulateDiaryGeneration({ transcript });
-    }
-    try {
-      const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
-      return this._mapDiaryResponseToResult(apiResponse, { transcriptText: transcript, dateISO });
-    } catch (err) {
-      console.warn("Diary generation failed; using fallback.", err);
-      return this._simulateDiaryGeneration({ transcript });
-    }
+    if (!AI_ENABLED) throw new Error("AI_DISABLED");
+    const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
+    return this._mapDiaryResponseToResult(apiResponse, { transcriptText: transcript, dateISO });
   }
   async _deserializeMemory(record) {
     const thumbKey = record.assets?.thumbKey;
@@ -1787,7 +1947,7 @@ export class App {
     if (typeof text === "string" && text.trim()) {
       this._setInputStatus(text);
     } else if (!isVisible) {
-      this._setInputStatus("Ready");
+      this._setInputStatus(this._t("ready"));
     }
     if (blockerText && typeof text === "string") {
       blockerText.innerText = text;
@@ -1844,9 +2004,8 @@ export class App {
     if (!isVisible) {
       this._stopVoiceTimer();
       this._clearMockStream({ clearText: true });
-      this._clearMockDiaryTimer();
     } else {
-      this._setInputStatus("Ready");
+      this._setInputStatus(this._t("ready"));
     }
   }
 
@@ -1856,7 +2015,7 @@ export class App {
   }
 
   _syncHomeActionState() {
-    const { micBtn, memoryInput, saveMemoryBtn, archiveBtn, closeVoiceBtn } = this.dom;
+    const { micBtn, memoryInput, saveMemoryBtn, closeVoiceBtn } = this.dom;
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
     const hasOpeningLine = this.messages.some(
@@ -1881,9 +2040,6 @@ export class App {
       saveMemoryBtn.disabled = nextSaveDisabled;
       this._hudCache.saveDisabled = nextSaveDisabled;
     }
-    if (archiveBtn) {
-      archiveBtn.disabled = nextSaveDisabled;
-    }
     if (closeVoiceBtn && this._hudCache.closeDisabled !== nextCloseDisabled) {
       closeVoiceBtn.disabled = nextCloseDisabled;
       this._hudCache.closeDisabled = nextCloseDisabled;
@@ -1894,9 +2050,9 @@ export class App {
       this._clearMockStream({ clearText: true });
     }
     if (!hasImage && !voiceActive) {
-      this._setInputStatus("Upload a photo to start");
+      this._setInputStatus(this._t("uploadToStart"));
     } else if (!this.saveInFlight && !this.blockerActive && !voiceActive) {
-      this._setInputStatus("Ready");
+      this._setInputStatus(this._t("ready"));
     }
   }
 
@@ -1904,7 +2060,7 @@ export class App {
     const { statusText } = this.dom;
     if (!statusText || typeof text !== "string") return;
     statusText.textContent = text;
-    const shouldShow = show == null ? text.trim().toLowerCase() !== "ready" : Boolean(show);
+    const shouldShow = show == null ? text.trim() !== this._t("ready") : Boolean(show);
     statusText.classList.toggle("opacity-0", !shouldShow);
   }
 
@@ -1932,8 +2088,8 @@ export class App {
     const seconds = this.voiceTimerSeconds % 60;
     const nextLabel =
       this.voiceTimerRunning || this.isRecognizing
-        ? `Listening ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
-        : "Ready";
+        ? `${this._t("listening")} ${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`
+        : this._t("ready");
     if (this._hudCache.timerLabel !== nextLabel) {
       voiceTimer.textContent = nextLabel;
       this._hudCache.timerLabel = nextLabel;
@@ -1953,7 +2109,7 @@ export class App {
       if (this.dom.memoryInput && (this.voiceTimerRunning || this.isRecognizing)) {
         this.dom.memoryInput.value = display;
       }
-      this._setOutputDisplay(`Transcript: ${display}`);
+      this._setOutputDisplay(`${this._t("transcriptPrefix")}: ${display}`);
       this.stage.showUser(display);
     } else {
       this.stage.hideUser();
@@ -1984,7 +2140,7 @@ export class App {
       this.voiceCommitPending = true;
       this.stage.setListening(false);
       this._setMicActiveState(false);
-      this._setInputStatus("Stopping...");
+      this._setInputStatus(this._t("stopRecording"));
       if (this.isRecognizing) {
         try {
           this.recognition.stop();
@@ -1997,11 +2153,11 @@ export class App {
 
     if (this.saveInFlight || this.blockerActive) return;
     if (!this._hasSessionImage()) {
-      this._setInputStatus("Upload a photo first");
+      this._setInputStatus(this._t("uploadFirst"));
       return;
     }
     if (!this.recognition) {
-      this._setInputStatus("Speech recognition unsupported");
+      this._setInputStatus(this._t("speechUnsupported"));
       return;
     }
 
@@ -2017,7 +2173,7 @@ export class App {
     this._updateVoiceTimerLabel();
     this.stage.setListening(true);
     this._setMicActiveState(true);
-    this._setInputStatus("Listening...");
+    this._setInputStatus(this._t("listeningShort"));
     if (this.isRecognizing) return;
     try {
       this.recognition.start();
@@ -2026,7 +2182,7 @@ export class App {
       this.voiceCommitPending = false;
       this.stage.setListening(false);
       this._setMicActiveState(false);
-      this._setInputStatus("Unable to start mic");
+      this._setInputStatus(this._t("unableToStartMic"));
     }
   }
 
@@ -2034,7 +2190,7 @@ export class App {
     if (this.voiceTimerRunning) return;
     this.voiceTimerRunning = true;
     this._setMicActiveState(true);
-    this._setInputStatus("Listening...");
+    this._setInputStatus(this._t("listeningShort"));
     this.voiceTimerInterval = window.setInterval(() => {
       this.voiceTimerSeconds += 1;
       this._updateVoiceTimerLabel();
@@ -2064,7 +2220,7 @@ export class App {
     this._setMicActiveState(false);
     if (reset) this.voiceTimerSeconds = 0;
     this._updateVoiceTimerLabel();
-    if (!this.saveInFlight && !this.blockerActive) this._setInputStatus("Ready");
+    if (!this.saveInFlight && !this.blockerActive) this._setInputStatus(this._t("ready"));
   }
 
   _resetHomeDraftState({ resetMessages = false } = {}) {
@@ -2079,7 +2235,7 @@ export class App {
     this.chatContents = [];
     this.analysisQuestions = [];
     this.stage.clearAll();
-    this._setHomePromptQuestions([], { useFallback: false });
+    this._setHomePromptQuestions([]);
   }
 
   _setMicActiveState(isActive) {
@@ -2106,10 +2262,10 @@ export class App {
     if (micIcon) micIcon.classList.toggle("memory-icon-hidden", isActive);
     if (stopIcon) stopIcon.classList.toggle("memory-icon-hidden", !isActive);
     if (this.dom.memoryInput) {
-      this.dom.memoryInput.placeholder = isActive ? "Listening..." : "type here...";
+      this.dom.memoryInput.placeholder = isActive ? this._t("listening") : this._t("inputPlaceholder");
     }
     micBtn.setAttribute("aria-pressed", isActive ? "true" : "false");
-    micBtn.setAttribute("aria-label", isActive ? "Stop recording" : "Start recording");
+    micBtn.setAttribute("aria-label", isActive ? this._t("stopRecordingLabel") : this._t("startRecordingLabel"));
     this._markHudDirty();
   }
 
@@ -2219,9 +2375,15 @@ export class App {
 
   _buildChatUserText() {
     const parts = [];
-    if (this.imageAnalysis) parts.push(`描述：${this.imageAnalysis}。`);
-    if (this.analysisQuestions.length) parts.push(`问题：${this.analysisQuestions.join(" / ")}。`);
-    parts.push("请用中文简短分享这一刻的感受。");
+    if (this.language === "zh") {
+      if (this.imageAnalysis) parts.push(`照片线索：${this.imageAnalysis}。`);
+      if (this.analysisQuestions.length) parts.push(`可用续话语气：${this.analysisQuestions.join(" / ")}。`);
+      parts.push("请先温柔接住我，优先用陈述句陪我说下去，不要像采访一样追问，也不要对图像内容乱下定义。");
+      return parts.join(" ");
+    }
+    if (this.imageAnalysis) parts.push(`Photo cues: ${this.imageAnalysis}.`);
+    if (this.analysisQuestions.length) parts.push(`Possible follow-up tone: ${this.analysisQuestions.join(" / ")}.`);
+    parts.push("Please respond like a close friend. Start with a gentle statement, avoid interview-style questions, and do not overclaim what is in the image.");
     return parts.join(" ");
   }
 
@@ -2229,20 +2391,89 @@ export class App {
     return /[？?]/.test(text || "");
   }
 
+  _normalizeChatText(text, maxLength = 36) {
+    const normalized = String(text || "").replace(/\s+/g, " ").trim();
+    if (this.language === "zh") return normalized.replace(/[A-Za-z]/g, "").slice(0, maxLength);
+    return normalized.slice(0, maxLength);
+  }
+
+  _hasEmotionalCue(text) {
+    const source = text || "";
+    return this.language === "zh"
+      ? /(难过|失落|想念|舍不得|孤单|紧张|害怕|后悔|委屈|开心|幸福|治愈|温柔|平静|想哭|放松)/.test(source)
+      : /(sad|lonely|miss|regret|scared|hurt|happy|soft|calm|want to cry|relaxed|warm)/i.test(source);
+  }
+
+  _hasHesitantCue(text) {
+    const source = text || "";
+    return this.language === "zh"
+      ? /(不知道|说不上来|就这样|就那样|然后呢|后来呢|嗯|嗯嗯|是啊|对啊|还好吧|有点吧|可能吧)/.test(source)
+      : /(not sure|i don't know|kind of|maybe|yeah|yep|uh|um|something like that)/i.test(source);
+  }
+
   _shouldAskQuestion(userText) {
     if (this.lastWasQuestion) return false;
     const hasQuestion = this._hasQuestionMark(userText);
-    if (hasQuestion) return Math.random() < 0.3;
-    return Math.random() < 0.6;
+    if (hasQuestion) return false;
+    const normalized = this._normalizeChatText(userText);
+    if (!normalized) return false;
+    if (this.replyTurn < 3) return false;
+    if (this._hasEmotionalCue(normalized)) return false;
+    if (normalized.length > 8) return false;
+    if (!this._hasHesitantCue(normalized)) return false;
+    return this.replyTurn % 3 === 0;
   }
 
   _buildImageContextSystemText(userText) {
-    const summary =
-      (this.imageContext?.summary || this.imageAnalysis || "一张照片").replace(/[A-Za-z]/g, "");
+    const summary = this._normalizeChatText(this.imageContext?.summary || this.imageAnalysis || (this.language === "zh" ? "一张照片" : "a photo"), this.language === "zh" ? 18 : 26);
     const tags = Array.isArray(this.imageContext?.tags) ? this.imageContext.tags.filter(Boolean) : [];
-    const tagText = tags.length ? tags.join("、") : "照片";
-    const askDirective = this._shouldAskQuestion(userText) ? "本轮要问。" : "本轮不要问。";
-    return `当前照片背景：${summary}；关键词：${tagText}。请围绕这张照片用简体中文像朋友一样短句聊天（≤28字）。${askDirective}`;
+    const tagText = tags.length ? tags.join(this.language === "zh" ? "、" : ", ") : this.language === "zh" ? "照片" : "photo";
+    const normalizedUserText = this._normalizeChatText(userText);
+    if (this.language === "zh") {
+      const askDirective = this._shouldAskQuestion(normalizedUserText)
+        ? "这轮如需继续打开话题，优先用留白式陈述句；确实必要时最多一句很轻的问题。"
+        : "这轮不要提问，用陈述句接住对方。";
+      const recentQuestion = this.analysisQuestions[0] ? `若需要续上语气，可参考：${this.analysisQuestions[0]}。` : "";
+      const userLine = normalizedUserText ? `用户刚说：${normalizedUserText}。` : "";
+      return [
+        "你在 Afterglow 里陪用户回看照片，要像熟悉的朋友一样聊天。",
+        `照片背景：${summary}。关键词：${tagText}。`,
+        userLine,
+        "优先用陈述句回应情绪，再把话题轻轻带回那一刻的人、场景、动作或感受。",
+        recentQuestion,
+        askDirective,
+        "如果对画面主体、媒介、地点或作品类型拿不准，不要硬认。",
+        "如果画面明显像某个知名作品或经典风格，可以说“像…”或“会让人想到…”，但不要乱编媒介。",
+        "拿不准时，先说颜色、光线、线条或氛围，再很轻地确认“这是什么呀”或“我有点没认出来，它原本是什么？”。",
+        "避免重复自己刚才说过的句型和词组，每次都按这张图和这轮对话现场回应。",
+        "避免采访式句型，比如“你当时…”“你最想…”“是什么让你…”。",
+        "不要说教，不要审问，不要空泛安慰。",
+      ]
+        .filter(Boolean)
+        .join("");
+    }
+    const askDirective = this._shouldAskQuestion(normalizedUserText)
+      ? "If you need to open the conversation a little more, prefer a soft statement first and ask at most one very light question."
+      : "Do not ask a question this turn. Use a statement to stay with the user.";
+    const recentQuestion = this.analysisQuestions[0] ? `Possible tone reference: ${this.analysisQuestions[0]}.` : "";
+    const userLine = normalizedUserText ? `User just said: ${normalizedUserText}.` : "";
+    return [
+      "You are in Afterglow, helping the user sit with this photo like a close friend would.",
+      `Photo context: ${summary}. Keywords: ${tagText}.`,
+      userLine,
+      "Start with a gentle statement that responds to the feeling, then lightly return to the person, place, action, or atmosphere in the image.",
+      recentQuestion,
+      askDirective,
+      "If you are unsure about the subject, medium, place, or work type, do not overclaim.",
+      "If the image clearly resembles a famous work or recognizable character, you can say it naturally.",
+      "If unsure, mention colors, light, lines, or mood first, then lightly confirm what it is.",
+      "Avoid repeating your own phrasing from the previous turn.",
+      "Avoid interview-style questions.",
+      "Do not lecture, interrogate, or use vague comfort phrases.",
+      "Reply in natural English.",
+    ]
+      .filter(Boolean)
+      .join(" ");
   }
 
   _buildChatContentsWithContext(userText) {
@@ -2257,23 +2488,21 @@ export class App {
     this.lastWasQuestion = this._hasQuestionMark(replyText);
   }
 
-  _buildFallbackReply() {
-    const summary = this.imageContext?.summary || this.imageAnalysis || "光影";
-    const subject = String(summary)
-      .replace(/[A-Za-z]/g, "")
-      .replace(/[。！？!?]/g, "")
-      .slice(0, 10) || "光影";
-    return `${subject}也太治愈了`;
-  }
-
   async _fetchChatReply(contents) {
-    if (!AI_ENABLED) return "";
+    if (!AI_ENABLED) throw new Error("AI_DISABLED");
     const response = await fetch(buildApiUrl("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents }),
+      body: JSON.stringify({ contents, language: this.language }),
     });
-    if (!response.ok) throw new Error("Chat request failed");
+    if (!response.ok) {
+      let detail = "";
+      try {
+        const data = await response.json();
+        detail = typeof data?.error === "string" ? data.error : "";
+      } catch {}
+      throw new Error(detail || `Chat request failed (${response.status})`);
+    }
     const data = await response.json();
     return typeof data.text === "string" ? data.text : "";
   }
@@ -2281,28 +2510,32 @@ export class App {
   async _startMockAssistantStream() {
     if (this.state?.mode !== "home" || !this._hasSessionImage() || this.blockerActive) return;
     this._clearMockStream({ clearText: true });
-    const fallbackReply = this._buildFallbackReply();
     const requestId = (this.chatRequestId += 1);
     const userText = this._buildChatUserText();
     if (userText) {
       this.chatContents.push({ role: "user", parts: [{ text: userText }] });
     }
-    let reply = fallbackReply;
     this.stage.setTyping(true);
     try {
       const requestContents = this._buildChatContentsWithContext(userText);
-      const apiText = await this._fetchChatReply(requestContents);
+      const reply = await this._fetchChatReply(requestContents);
       if (this.chatRequestId !== requestId) return;
-      if (apiText) reply = apiText;
+      if (!reply) {
+        this.stage.setTyping(false);
+        this.stage.showSystem(this._t("noResponse"));
+        return;
+      }
+      if (this.state?.mode !== "home") return;
+      this.stage.setTyping(false);
+      this.chatContents.push({ role: "model", parts: [{ text: reply }] });
+      this._recordReplyState(reply);
+      this._streamRealReply(reply);
     } catch (err) {
       if (this.chatRequestId !== requestId) return;
-      console.warn("Chat request failed; using fallback.", err);
+      console.warn("Chat request failed", err);
+      this.stage.setTyping(false);
+      this.stage.showSystem(this._t("connectionFailed"));
     }
-    if (this.state?.mode !== "home") return;
-    this.stage.setTyping(false);
-    this.chatContents.push({ role: "model", parts: [{ text: reply }] });
-    this._recordReplyState(reply);
-    this._streamRealReply(reply);
   }
 
   _setMaterialSeed(material, id) {
@@ -2371,21 +2604,22 @@ export class App {
     }
 
     const createdAt = diaryCard.dateISO ? new Date(diaryCard.dateISO) : new Date();
-    const dateLabel = createdAt.toLocaleDateString("en-US", { month: "short", day: "2-digit" }).toUpperCase();
-    const timeLabel = createdAt.toLocaleTimeString("en-US", {
+    const locale = this._languageConfig().locale;
+    const dateLabel = createdAt.toLocaleDateString(locale, { month: "short", day: "2-digit" }).toUpperCase();
+    const timeLabel = createdAt.toLocaleTimeString(locale, {
       hour: "2-digit",
       minute: "2-digit",
       hour12: true,
     });
-    const moodText = diaryCard.mood || "Neutral";
+    const moodText = diaryCard.mood || (this.language === "zh" ? "平静" : "Neutral");
     const fullText = diaryText && diaryText.trim().length > 0 ? diaryText.trim() : diaryCard.summary || "";
     const insightText = highlights.length ? highlights.join(" - ") : diaryCard.summary || "";
 
     if (diaryModalDate) diaryModalDate.innerText = dateLabel;
     if (diaryModalTime) diaryModalTime.innerText = timeLabel;
     if (diaryModalMood) diaryModalMood.innerText = moodText;
-    if (diaryModalTitle) diaryModalTitle.innerText = diaryCard.title || "Untitled Memory";
-    if (diaryModalSubtitle) diaryModalSubtitle.innerText = "Captured in the Afterglow";
+    if (diaryModalTitle) diaryModalTitle.innerText = diaryCard.title || (this.language === "zh" ? "未命名记忆" : "Untitled Memory");
+    if (diaryModalSubtitle) diaryModalSubtitle.innerText = this.language === "zh" ? "被 Afterglow 收录的这一刻" : "Captured in the Afterglow";
     if (diaryModalContent) diaryModalContent.innerText = fullText;
     if (diaryModalAiText) diaryModalAiText.innerText = insightText;
 
@@ -2599,15 +2833,18 @@ export class App {
   _applyHallCamera(isHall) {
     if (!this.camera) return;
     if (isHall) {
+      this.settings.viewDistance = this.hallViewDistance;
       this.camera.fov = this.hallFov;
       this.camera.near = 0.01;
       this.camera.far = 100;
     } else if (this.cameraDefaults) {
+      this.settings.viewDistance = this.homeSettings.zoom;
       this.camera.fov = this.cameraDefaults.fov;
       this.camera.near = this.cameraDefaults.near;
       this.camera.far = this.cameraDefaults.far;
     }
     this.camera.updateProjectionMatrix();
+    this._syncControlDistance(this.settings.viewDistance);
   }
 
   _resetHallViewParams() {
@@ -2615,6 +2852,7 @@ export class App {
     this.ringSettings.depth = RING_DEFAULTS.depth;
     this.ringSettings.angle = RING_DEFAULTS.angle;
     this.hallFov = HALL_FOV_DEFAULT;
+    this.hallViewDistance = HALL_VIEW_DISTANCE_DEFAULT;
     this.hallOpacityBase = CAROUSEL.opacityBase;
 
     if (this._isInHall()) this._applyHallCamera(true);

@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: afterglow-api
+    runtime: node
+    rootDir: server
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /api/health
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_ANALYZE_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_CHAT_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_DIARY_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_CHAT_USE_SEARCH
+        value: "1"

@@ -170,21 +170,21 @@
             z-index: 30;
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
             padding: 14px 28px;
             pointer-events: auto;
             background: linear-gradient(180deg, rgba(0,0,0,0.7), rgba(0,0,0,0));
             backdrop-filter: blur(6px);
         }
         .af-nav__brand {
+            position: absolute;
+            left: 28px;
             font-size: 14px;
             letter-spacing: 3px;
             font-weight: 700;
         }
         .af-nav__center {
-            position: absolute;
-            left: 50%;
-            transform: translateX(calc(-50% - 18px));
+            position: relative;
             display: flex;
             gap: 24px;
             font-size: 12px;
@@ -192,6 +192,7 @@
             text-transform: uppercase;
             color: rgba(255,255,255,0.9);
             white-space: nowrap;
+            justify-content: center;
         }
         .af-nav__link {
             cursor: pointer;
@@ -200,6 +201,8 @@
         }
         .af-nav__link:hover { opacity: 0.7; }
         .af-nav__right {
+            position: absolute;
+            right: 28px;
             display: flex;
             align-items: center;
             gap: 16px;
@@ -281,14 +284,26 @@
             gap: 8px;
             padding: 8px 14px;
             border-radius: 999px;
-            background: rgba(0, 0, 0, 0.65);
-            border: 1px solid rgba(255, 255, 255, 0.22);
-            backdrop-filter: blur(6px);
+            background: rgba(16, 18, 24, 0.42);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            backdrop-filter: blur(18px) saturate(135%);
+            -webkit-backdrop-filter: blur(18px) saturate(135%);
             font-size: 12px;
             letter-spacing: 1px;
             cursor: pointer;
-            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255,255,255,0.08);
             pointer-events: auto;
+            transition: transform 0.2s ease, border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+        }
+        #af-agent-pill:hover {
+            transform: translateY(-1px);
+            border-color: rgba(255, 255, 255, 0.26);
+            background: rgba(18, 20, 28, 0.52);
+        }
+        #af-agent-pill:focus-visible {
+            outline: none;
+            border-color: rgba(255, 255, 255, 0.34);
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.14), 0 18px 42px rgba(0,0,0,0.38);
         }
         .af-agent-dot {
             width: 8px;
@@ -296,6 +311,23 @@
             border-radius: 50%;
             background: #4ade80;
             box-shadow: 0 0 8px rgba(74, 222, 128, 0.75);
+        }
+        .af-agent-chip {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 34px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.88);
+            font-size: 10px;
+            letter-spacing: 0.8px;
+        }
+        .af-agent-caret {
+            opacity: 0.58;
+            font-size: 10px;
+            transform: translateY(-1px);
         }
         #af-agent-pill.is-listening {
             border-color: rgba(255, 107, 107, 0.45);
@@ -306,6 +338,69 @@
             box-shadow: 0 0 8px rgba(255, 107, 107, 0.6);
         }
         .af-agent-name { font-weight: 600; }
+        .af-language-menu {
+            width: min(280px, 84vw);
+            padding: 10px;
+            border-radius: 24px;
+            background:
+                linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0.04)),
+                rgba(16, 18, 24, 0.4);
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            box-shadow:
+                0 24px 48px rgba(0, 0, 0, 0.35),
+                inset 0 1px 0 rgba(255,255,255,0.18);
+            backdrop-filter: blur(28px) saturate(160%);
+            -webkit-backdrop-filter: blur(28px) saturate(160%);
+            pointer-events: none;
+            opacity: 0;
+            transform: translateY(-6px) scale(0.98);
+            transform-origin: top center;
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        .af-language-menu.is-open {
+            pointer-events: auto;
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        .af-language-menu__title {
+            padding: 6px 10px 10px;
+            font-size: 11px;
+            letter-spacing: 1.1px;
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: uppercase;
+        }
+        .af-language-option {
+            width: 100%;
+            border: 0;
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 12px 14px;
+            border-radius: 18px;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            text-align: left;
+            transition: background 0.18s ease, transform 0.18s ease;
+        }
+        .af-language-option:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateY(-1px);
+        }
+        .af-language-option.is-active {
+            background: rgba(255, 255, 255, 0.14);
+            box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+        }
+        .af-language-option__label {
+            font-size: 14px;
+            letter-spacing: 0.4px;
+        }
+        .af-language-option__meta {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.62);
+            letter-spacing: 0.6px;
+        }
         #af-home-voice,
         #af-memory-input {
             position: absolute;
@@ -608,81 +703,6 @@
             border-color: rgba(255, 255, 255, 0.6);
         }
         .af-hidden { display: none; pointer-events: none; }
-        #af-info-panel.af-hidden { display: none; pointer-events: none; }
-        #af-info-panel {
-            position: fixed;
-            top: calc(var(--af-nav-offset, 56px) + 12px);
-            right: 18px;
-            bottom: 18px;
-            width: min(420px, 92vw);
-            z-index: 70;
-            pointer-events: auto;
-        }
-        .af-info-card {
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            padding: 16px;
-            border-radius: 16px;
-            background: rgba(0, 0, 0, 0.78);
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            backdrop-filter: blur(10px);
-            box-shadow: 0 18px 30px rgba(0, 0, 0, 0.5);
-        }
-        .af-info-head {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-        }
-        .af-info-title {
-            font-size: 11px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.75);
-        }
-        .af-info-close {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(255, 255, 255, 0.08);
-            color: #fff;
-            cursor: pointer;
-            font-size: 16px;
-            line-height: 1;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            transition: background 0.2s, border-color 0.2s;
-        }
-        .af-info-close:hover {
-            background: rgba(255, 255, 255, 0.18);
-            border-color: rgba(255, 255, 255, 0.5);
-        }
-        .af-info-body {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            overflow-y: auto;
-            padding-right: 4px;
-        }
-        .af-info-kicker {
-            font-size: 10px;
-            letter-spacing: 2px;
-            text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.6);
-        }
-        .af-info-empty {
-            font-size: 12px;
-            color: rgba(255, 255, 255, 0.6);
-        }
-        .af-info-diary {
-            display: none;
-            gap: 10px;
-            flex-direction: column;
-        }
         .af-diary-title {
             font-size: 14px;
             font-weight: 600;
@@ -1327,11 +1347,24 @@
             font-size: 13px;
             line-height: 1.65;
             color: rgba(215, 215, 215, 0.82);
-            display: -webkit-box;
-            -webkit-line-clamp: 4;
-            line-clamp: 4;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
+            max-height: 168px;
+            overflow-y: auto;
+            padding-right: 8px;
+            white-space: pre-wrap;
+            word-break: break-word;
+            overscroll-behavior: contain;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255, 255, 255, 0.16) transparent;
+        }
+        .memory-summary::-webkit-scrollbar {
+            width: 4px;
+        }
+        .memory-summary::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        .memory-summary::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.16);
+            border-radius: 999px;
         }
         .memory-divider {
             width: 100%;
