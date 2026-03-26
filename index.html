@@ -9,9 +9,22 @@
 <body>
     <div id="af-center-stage" class="af-center-stage">
         <div class="af-center-stage__top">
-            <div id="af-agent-pill" class="af-agent-pill" role="button" aria-label="Agent selector">
+            <div id="af-agent-pill" class="af-agent-pill" role="button" aria-label="Agent selector" aria-haspopup="dialog" aria-expanded="false" aria-controls="af-language-menu" tabindex="0">
                 <span class="af-agent-dot" aria-hidden="true"></span>
                 <span class="af-agent-name">Gemini</span>
+                <span id="af-language-chip" class="af-agent-chip">中文</span>
+                <span class="af-agent-caret" aria-hidden="true">▾</span>
+            </div>
+            <div id="af-language-menu" class="af-language-menu" hidden aria-hidden="true">
+                <div id="af-language-menu-title" class="af-language-menu__title">Language</div>
+                <button id="af-lang-zh" class="af-language-option is-active" type="button" data-lang="zh">
+                    <span class="af-language-option__label">中文</span>
+                    <span class="af-language-option__meta">Simplified Chinese</span>
+                </button>
+                <button id="af-lang-en" class="af-language-option" type="button" data-lang="en">
+                    <span class="af-language-option__label">English</span>
+                    <span class="af-language-option__meta">Natural English</span>
+                </button>
             </div>
             <div id="af-typing-indicator" class="af-typing" hidden>正在输入...</div>
         </div>
@@ -24,15 +37,13 @@
     <div class="af-nav">
         <div class="af-nav__brand">AFTERGLOW</div>
         <div class="af-nav__center">
-            <div class="af-nav__link">THE GARDEN</div>
+            <div class="af-nav__link" data-action="open-hall">THE HALL</div>
             <div class="af-nav__link" data-action="open-calendar">CALENDAR</div>
             <div class="af-nav__link">MEMORY</div>
-            <div class="af-nav__link">MUSIC</div>
-            <div class="af-nav__link" data-action="open-info">INFO</div>
         </div>
         <div class="af-nav__right">
             <div class="af-mode-toggle" id="af-render-toggle">
-                <span class="af-mode-toggle__label">TEST</span>
+                <span class="af-mode-toggle__label">MODE</span>
                 <div class="af-mode-toggle__seg">
                     <button class="af-mode-toggle__btn" id="af-render-kolam" type="button">Kolam</button>
                     <button class="af-mode-toggle__btn" id="af-render-halo" type="button">Halo</button>
@@ -125,7 +136,6 @@
                     <span>Upload</span>
                     <input type="file" id="fileInput" accept="image/*" />
                 </div>
-                <button id="archiveBtn" class="btn">Archive</button>
             </div>
             <button id="enter-hall-btn" class="btn" style="border-color: #666; color: #fff; margin-top: 5px;">
                 Enter Hall <span id="memory-count" style="opacity:0.6; font-size:9px; margin-left:5px;">(0)</span>
@@ -183,37 +193,6 @@
             </div>
         </div>
 
-        <div id="af-info-panel" class="af-info-panel af-hidden" aria-hidden="true">
-            <div class="af-info-card">
-                <div class="af-info-head">
-                    <div class="af-info-title">INFO</div>
-                    <button id="af-info-close" class="af-info-close" type="button" aria-label="Close">×</button>
-                </div>
-
-                <div class="af-info-body">
-                    <div class="af-info-kicker" id="af-info-memno">MEM 01</div>
-
-                    <div id="af-info-empty" class="af-info-empty">
-                        No diary for this memory yet.
-                    </div>
-
-                    <div id="af-info-diary" class="af-info-diary">
-                        <div class="af-diary-title" id="af-diary-title"></div>
-                        <div class="af-diary-meta">
-                            <span id="af-diary-date"></span>
-                            <span id="af-diary-mood"></span>
-                        </div>
-                        <div class="af-diary-tags" id="af-diary-tags"></div>
-                        <div class="af-diary-summary" id="af-diary-summary"></div>
-
-                        <details class="af-diary-details">
-                            <summary>Transcript</summary>
-                            <pre id="af-diary-transcript"></pre>
-                        </details>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
 
     <div id="canvas-container"></div>
@@ -257,8 +236,6 @@
         <nav class="memory-gallery-nav">
             <a href="#" id="btn-back-to-calendar">BACK TO CHRON</a>
             <a href="#">MEMORY</a>
-            <a href="#">MUSIC</a>
-            <a href="#">INFO</a>
         </nav>
         <main id="gallery-container" class="gallery-scroll"></main>
         <button id="nav-left" class="gallery-nav-btn" type="button" aria-label="Previous memory">
