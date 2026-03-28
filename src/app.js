@@ -564,7 +564,6 @@ export class App {
     this.voiceInterim = "";
     this.voiceCommitPending = false;
     this._homeUiVisible = null;
-    this.infoOpen = false;
     this.analysisQuestions = [];
     this.chatContents = [];
     this.chatRequestId = 0;
@@ -638,6 +637,9 @@ export class App {
 
     this.memoryGallery.setOnBack(() => {
       this._handleGalleryBack();
+    });
+    this.memoryGallery.setOnDiaryEdit(async (record) => {
+      await this._persistDiaryCardEdit(record);
     });
     this.memoryCalendar.hide();
     this.memoryGallery.hide();
@@ -809,7 +811,6 @@ export class App {
       renderHalo,
       renderLayered,
       hallResetBtn,
-      enterHallBtn,
       diaryModal,
       diaryModalClose,
       diaryModalShare,
@@ -998,7 +999,6 @@ export class App {
       if (this.saveInFlight || this.blockerActive) return;
       this._hideMemoryViews();
       this._setMainUIVisible(true);
-      this._setInfoOpen(false);
       this._enterHall();
     });
     navCalendar?.addEventListener("click", () => {
@@ -1015,11 +1015,6 @@ export class App {
       this._setMainUIVisible(true);
       this._syncHomeActionState();
     });
-
-    if (enterHallBtn) {
-      enterHallBtn.style.display = "none";
-      enterHallBtn.style.pointerEvents = "none";
-    }
 
     this._syncHomeVoiceUI();
   }
@@ -1511,6 +1506,23 @@ export class App {
     return `${year}-${month}-${day}`;
   }
 
+  async _persistDiaryCardEdit(record) {
+    if (!record?.id) throw new Error("Missing memory record");
+    await this.storage.upsertMemory(record);
+
+    const currentMemory = this.state.memories.find((entry) => entry?.record?.id === record.id);
+    if (currentMemory) {
+      currentMemory.record = {
+        ...currentMemory.record,
+        ...record,
+        diaryCard: {
+          ...(currentMemory.record?.diaryCard || {}),
+          ...(record.diaryCard || {}),
+        },
+      };
+    }
+  }
+
   _getMemoryDateKey(memory) {
     return this._toLocalDateKey(memory?.anchorDate) || this._toLocalDateKey(memory?.createdAt);
   }
@@ -1848,8 +1860,6 @@ export class App {
     this.galleryGroup.add(memory.mesh);
     this._updateGalleryLayout();
     this._updateGalleryTarget();
-    this._updateMemoryCount();
-    if (this.infoOpen) this._renderInfoForSelectedMemory();
   }
 
   async _ensureRenderForCurrent() {
@@ -1971,7 +1981,7 @@ export class App {
     const isGallery = nextMode === "gallery";
     const isHome = nextMode === "home";
     this.state.mode = nextMode;
-    document.body.classList.remove("mode-landing", "mode-home", "mode-gallery");
+    document.body.classList.remove("mode-boot", "mode-landing", "mode-home", "mode-gallery");
     document.body.classList.add(`mode-${nextMode}`);
     if (controlPanel) controlPanel.classList.toggle("hidden", !isHome);
     if (galleryUI) galleryUI.classList.toggle("hidden", !isGallery);
@@ -2714,7 +2724,7 @@ export class App {
   _enterHall() {
     if (this._isInHall()) return false;
     if (this.state.memories.length === 0) {
-      alert("Archive is empty.");
+      alert("The Hall is empty.");
       return false;
     }
 
@@ -2727,105 +2737,11 @@ export class App {
     this.desiredTarget.set(0, 0, 0);
     this._updateGalleryTarget({ snap: true });
     this._ensureRenderForCurrent();
-    if (this.infoOpen) this._renderInfoForSelectedMemory();
     return true;
   }
 
   _isInHall() {
     return this.state.mode === "gallery";
-  }
-
-  _setInfoOpen(isOpen) {
-    this.infoOpen = isOpen;
-    const { infoPanel } = this.dom;
-    if (!infoPanel) return;
-    infoPanel.classList.toggle("af-hidden", !isOpen);
-    infoPanel.setAttribute("aria-hidden", isOpen ? "false" : "true");
-    if (isOpen) this._renderInfoForSelectedMemory();
-  }
-
-  _getSelectedMemoryMeta() {
-    const count = this.state.memories.length;
-    if (!count) return { memory: null, index: -1, number: null };
-    const index = wrapIndex(this.state.galleryIndex, count);
-    const memory = this.state.memories[index] || null;
-    if (!memory) return { memory: null, index: -1, number: null };
-    return { memory, index, number: index + 1 };
-  }
-
-  _renderInfoForSelectedMemory() {
-    const {
-      infoMemNo,
-      infoEmpty,
-      infoDiary,
-      diaryTitle,
-      diaryDate,
-      diaryMood,
-      diaryTags,
-      diarySummary,
-      diaryTranscript,
-    } = this.dom;
-    if (!infoMemNo && !infoEmpty && !infoDiary) return;
-
-    const { memory, number } = this._getSelectedMemoryMeta();
-    if (infoMemNo) {
-      infoMemNo.innerText = memory ? `MEM ${String(number).padStart(2, "0")}` : "MEM --";
-    }
-
-    if (!memory) {
-      if (infoEmpty) {
-        infoEmpty.innerText = "No memory selected yet.";
-        infoEmpty.style.display = "block";
-      }
-      if (infoDiary) infoDiary.style.display = "none";
-      return;
-    }
-
-    const diary = memory.record?.diaryCard;
-    const hasDiary = Boolean(diary);
-    if (!hasDiary) {
-      if (infoEmpty) {
-        infoEmpty.innerText = "No diary for this memory yet.";
-        infoEmpty.style.display = "block";
-      }
-      if (infoDiary) infoDiary.style.display = "none";
-      return;
-    }
-
-    if (infoEmpty) infoEmpty.style.display = "none";
-    if (infoDiary) infoDiary.style.display = "flex";
-
-    if (diaryTitle) diaryTitle.innerText = diary.title || "Untitled";
-    if (diarySummary) diarySummary.innerText = diary.summary || "";
-
-    const dateText = diary.dateISO ? new Date(diary.dateISO).toLocaleDateString() : "";
-    if (diaryDate) diaryDate.innerText = dateText;
-
-    const moodText = diary.mood || "";
-    if (diaryMood) {
-      diaryMood.innerText = moodText;
-      diaryMood.style.display = moodText ? "inline" : "none";
-    }
-
-    const tags = Array.isArray(diary.tags) ? diary.tags : [];
-    if (diaryTags) {
-      diaryTags.innerText = tags.length ? tags.map((tag) => `#${tag}`).join(" ") : "";
-      diaryTags.style.display = tags.length ? "block" : "none";
-    }
-
-    const transcript = memory.record?.transcript || "";
-    if (diaryTranscript) {
-      diaryTranscript.innerText = transcript;
-      const details = diaryTranscript.closest("details");
-      if (details) details.style.display = transcript ? "block" : "none";
-    }
-  }
-
-  _updateMemoryCount() {
-    const { memoryCount } = this.dom;
-    if (!memoryCount) return;
-    const count = this.state.memories.length;
-    memoryCount.innerText = `(${count})`;
   }
 
   _updateGalleryCounter() {
@@ -2873,7 +2789,6 @@ export class App {
     this._setCarouselTarget(this.state.galleryIndex);
     this._ensureRenderForCurrent();
     this._updateGalleryCounter();
-    if (this.infoOpen) this._renderInfoForSelectedMemory();
   }
 
   _setCarouselTarget(targetIndex) {

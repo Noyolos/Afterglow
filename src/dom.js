@@ -17,7 +17,6 @@ export function getDom() {
     effectPanel: byId("effect-panel"),
 
     fileInput: byId("fileInput"),
-    enterHallBtn: byId("enter-hall-btn"),
     backBtn: byId("back-btn"),
     prevZone: byId("prev-zone"),
     nextZone: byId("next-zone"),
@@ -25,7 +24,6 @@ export function getDom() {
     controlPanel: byId("control-panel"),
     galleryUI: byId("gallery-ui"),
     galleryCounter: byId("gallery-counter"),
-    memoryCount: byId("memory-count"),
 
     agentPill: byId("af-agent-pill"),
     languageChip: byId("af-language-chip"),
@@ -55,12 +53,6 @@ export function getDom() {
     navCalendar: document.querySelector('[data-action="open-calendar"]'),
     calendarOpenDayBtn: byId("calendar-open-day"),
     calendarBackHomeBtn: byId("calendar-back-home"),
-    diaryTitle: byId("af-diary-title"),
-    diaryDate: byId("af-diary-date"),
-    diaryMood: byId("af-diary-mood"),
-    diaryTags: byId("af-diary-tags"),
-    diarySummary: byId("af-diary-summary"),
-    diaryTranscript: byId("af-diary-transcript"),
 
     diaryModal: byId("af-diary-modal"),
     diaryModalDate: byId("af-modal-date"),

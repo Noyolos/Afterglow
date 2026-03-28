@@ -26,6 +26,15 @@ function formatMemoryTime(isoDate) {
   });
 }
 
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export class MemoryGallery {
   constructor() {
     this.view = document.getElementById("view-gallery");
@@ -37,7 +46,9 @@ export class MemoryGallery {
     this.objectUrls = [];
     this.cards = [];
     this.renderToken = 0;
+    this.memories = [];
     this.onBack = null;
+    this.onDiaryEdit = null;
     this._boundScrollFrame = null;
 
     this.bindEvents();
@@ -74,10 +85,64 @@ export class MemoryGallery {
         if (typeof this.onBack === "function") this.onBack();
       });
     }
+    if (this.container) {
+      this.container.addEventListener("click", (event) => {
+        const editBtn = event.target?.closest?.(".memory-edit-btn[data-edit-field]");
+        if (!editBtn) return;
+        const card = editBtn.closest(".memory-card[data-memory-id]");
+        const field = editBtn.getAttribute("data-edit-field");
+        if (!card || !field) return;
+        event.preventDefault();
+        this._startFieldEdit(card, field);
+      });
+
+      this.container.addEventListener("focusout", (event) => {
+        const input = event.target?.closest?.(".memory-edit-input[data-edit-input]");
+        if (!input) return;
+        const card = input.closest(".memory-card[data-memory-id]");
+        const field = input.getAttribute("data-edit-input");
+        if (!card || !field) return;
+        if (input.dataset.cancelEdit === "1") {
+          delete input.dataset.cancelEdit;
+          return;
+        }
+        this._commitFieldEdit(card, field);
+      });
+
+      this.container.addEventListener("keydown", (event) => {
+        const input = event.target?.closest?.(".memory-edit-input[data-edit-input]");
+        if (!input) return;
+        const card = input.closest(".memory-card[data-memory-id]");
+        const field = input.getAttribute("data-edit-input");
+        if (!card || !field) return;
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          input.dataset.cancelEdit = "1";
+          this._cancelFieldEdit(card, field);
+          return;
+        }
+
+        if (field === "title" && event.key === "Enter") {
+          event.preventDefault();
+          this._commitFieldEdit(card, field);
+          return;
+        }
+
+        if (field === "summary" && event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          this._commitFieldEdit(card, field);
+        }
+      });
+    }
   }
 
   setOnBack(handler) {
     this.onBack = typeof handler === "function" ? handler : null;
+  }
+
+  setOnDiaryEdit(handler) {
+    this.onDiaryEdit = typeof handler === "function" ? handler : null;
   }
 
   async render(memories, resolveAsset) {
@@ -86,6 +151,7 @@ export class MemoryGallery {
     if (!this.container) return;
 
     const list = Array.isArray(memories) ? memories : [];
+    this.memories = [...list];
     if (!list.length) {
       this.container.insertAdjacentHTML(
         "beforeend",
@@ -110,7 +176,9 @@ export class MemoryGallery {
       const diary = record?.diaryCard ?? {};
       const title = diary.title || "Untitled Memory";
       const summary = diary.summary || "";
-      const timeText = formatMemoryTime(record?.createdAt);
+      const safeTitle = escapeHtml(title);
+      const safeSummary = escapeHtml(summary);
+      const timeText = escapeHtml(formatMemoryTime(record?.createdAt));
       const transcript = parseTranscript(record?.transcript || "");
       const assetKey = record?.assets?.renderKey || record?.assets?.thumbKey || "";
       const imageSrc = await this._resolveAssetUrl(assetKey, resolveAsset);
@@ -125,7 +193,7 @@ export class MemoryGallery {
               return `
                 <div class="${wrapClass}">
                   <div class="chat-bubble ${roleClass}">
-                    <p>${entry.text}</p>
+                    <p>${escapeHtml(entry.text)}</p>
                   </div>
                 </div>
               `;
@@ -134,21 +202,56 @@ export class MemoryGallery {
         : `<div class="chat-row ai"><div class="chat-bubble bubble-ai"><p>No transcript.</p></div></div>`;
 
       const imageHtml = imageSrc
-        ? `<img src="${imageSrc}" alt="${title}" class="memory-image">`
+        ? `<img src="${imageSrc}" alt="${safeTitle}" class="memory-image">`
         : `<div class="memory-image memory-image--fallback"></div>`;
 
       this.container.insertAdjacentHTML(
         "beforeend",
         `
-          <article class="glass-card memory-card">
+          <article class="glass-card memory-card" data-memory-id="${escapeHtml(record?.id || "")}">
             <div class="memory-image-wrap">
               ${imageHtml}
               <div class="memory-image-shade"></div>
             </div>
             <div class="memory-head">
-              <h2 class="memory-title">${title}</h2>
+              <div class="memory-title-row memory-editable" data-editable-field="title">
+                <div class="memory-title-copy">
+                  <h2 class="memory-title" data-field-display="title">${safeTitle}</h2>
+                  <input
+                    class="memory-edit-input memory-edit-input--title"
+                    data-edit-input="title"
+                    type="text"
+                    value="${safeTitle}"
+                    hidden
+                    aria-label="Edit memory title"
+                  >
+                </div>
+                <button class="memory-edit-btn" type="button" data-edit-field="title" aria-label="Edit memory title">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M12 20h9"/>
+                    <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                  </svg>
+                </button>
+              </div>
               <div class="memory-time">${timeText}</div>
-              <p class="memory-summary">${summary}</p>
+              <div class="memory-summary-row memory-editable" data-editable-field="summary">
+                <div class="memory-edit-header">
+                  <span class="memory-edit-kicker">Daily Summary</span>
+                  <button class="memory-edit-btn" type="button" data-edit-field="summary" aria-label="Edit daily summary">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M12 20h9"/>
+                      <path d="M16.5 3.5a2.12 2.12 0 1 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+                    </svg>
+                  </button>
+                </div>
+                <p class="memory-summary" data-field-display="summary">${safeSummary}</p>
+                <textarea
+                  class="memory-edit-input memory-edit-input--summary"
+                  data-edit-input="summary"
+                  hidden
+                  aria-label="Edit daily summary"
+                >${safeSummary}</textarea>
+              </div>
             </div>
             <div class="memory-divider"></div>
             <div class="memory-chat chat-scroll">${chatHtml}</div>
@@ -216,6 +319,7 @@ export class MemoryGallery {
   clear() {
     if (this.container) this.container.innerHTML = "";
     this.cards = [];
+    this.memories = [];
     this.objectUrls.forEach((url) => URL.revokeObjectURL(url));
     this.objectUrls = [];
   }
@@ -236,5 +340,110 @@ export class MemoryGallery {
     this.view.classList.remove("view-visible");
     this.view.classList.add("view-hidden");
     this.view.setAttribute("aria-hidden", "true");
+  }
+
+  _findMemorySource(memoryId) {
+    return this.memories.find((memory) => {
+      const record = memory?.record ?? memory;
+      return record?.id === memoryId;
+    });
+  }
+
+  _getFieldElements(card, field) {
+    const display = card?.querySelector?.(`[data-field-display="${field}"]`);
+    const input = card?.querySelector?.(`[data-edit-input="${field}"]`);
+    const editable = card?.querySelector?.(`.memory-editable[data-editable-field="${field}"]`);
+    return { display, input, editable };
+  }
+
+  _startFieldEdit(card, field) {
+    const { display, input, editable } = this._getFieldElements(card, field);
+    if (!display || !input || !editable) return;
+    if (!input.hidden) {
+      input.focus();
+      return;
+    }
+
+    input.dataset.originalValue = display.textContent ?? "";
+    input.value = display.textContent ?? "";
+    display.hidden = true;
+    input.hidden = false;
+    editable.classList.add("is-editing");
+    card.classList.add("is-editing");
+
+    requestAnimationFrame(() => {
+      input.focus();
+      const length = input.value.length;
+      if (typeof input.setSelectionRange === "function") {
+        input.setSelectionRange(length, length);
+      }
+    });
+  }
+
+  _cancelFieldEdit(card, field) {
+    const { display, input, editable } = this._getFieldElements(card, field);
+    if (!display || !input || !editable) return;
+    input.value = input.dataset.originalValue ?? display.textContent ?? "";
+    input.hidden = true;
+    display.hidden = false;
+    editable.classList.remove("is-editing");
+    card.classList.remove("is-editing");
+  }
+
+  async _commitFieldEdit(card, field) {
+    const { display, input, editable } = this._getFieldElements(card, field);
+    if (!display || !input || !editable || input.hidden) return;
+
+    const memoryId = card.getAttribute("data-memory-id");
+    const originalValue = input.dataset.originalValue ?? display.textContent ?? "";
+    const trimmedValue = input.value.replace(/\r\n/g, "\n").trim();
+    const nextValue = field === "title" ? trimmedValue || "Untitled Memory" : trimmedValue;
+
+    input.hidden = true;
+    display.hidden = false;
+    editable.classList.remove("is-editing");
+    card.classList.remove("is-editing");
+
+    if (nextValue === originalValue.trim()) {
+      display.textContent = field === "title" ? nextValue : originalValue;
+      return;
+    }
+
+    const source = this._findMemorySource(memoryId);
+    const record = source?.record ?? source;
+    if (!record) {
+      display.textContent = originalValue;
+      return;
+    }
+
+    display.textContent = nextValue;
+    const nextRecord = {
+      ...record,
+      diaryCard: {
+        ...(record.diaryCard || {}),
+        [field]: nextValue,
+      },
+    };
+
+    if (source?.record) {
+      source.record = nextRecord;
+    } else {
+      Object.assign(source, nextRecord);
+    }
+
+    try {
+      if (this.onDiaryEdit) {
+        await this.onDiaryEdit(nextRecord, { field, value: nextValue });
+      }
+    } catch (err) {
+      console.warn("Failed to persist diary edit", err);
+      display.textContent = originalValue;
+      if (source?.record) {
+        source.record = record;
+      } else {
+        Object.assign(source, record);
+      }
+      window.alert("Could not update this memory right now.");
+    }
   }
 }

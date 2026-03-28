@@ -24,6 +24,10 @@
             width: 100%;
             height: 100%;
         }
+        body.mode-boot #af-app-shell,
+        body.mode-boot #af-landing {
+            display: none !important;
+        }
         #canvas-container { width: 100vw; height: 100vh; display: block; position: absolute; top: 0; left: 0; z-index: 1; }
         body.mode-landing #af-app-shell { display: none; }
         body.mode-landing #af-landing { display: flex; }
@@ -702,44 +706,6 @@
             background: rgba(255, 255, 255, 0.2);
             border-color: rgba(255, 255, 255, 0.6);
         }
-        .af-hidden { display: none; pointer-events: none; }
-        .af-diary-title {
-            font-size: 14px;
-            font-weight: 600;
-            letter-spacing: 0.3px;
-        }
-        .af-diary-meta {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.65);
-        }
-        .af-diary-tags {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.6);
-        }
-        .af-diary-summary {
-            font-size: 12px;
-            line-height: 1.5;
-            color: rgba(255, 255, 255, 0.85);
-        }
-        .af-diary-details {
-            font-size: 11px;
-            color: rgba(255, 255, 255, 0.7);
-        }
-        .af-diary-details summary {
-            cursor: pointer;
-            margin-bottom: 6px;
-        }
-        .af-diary-details pre {
-            margin: 0;
-            white-space: pre-wrap;
-            font-family: "Courier New", Courier, monospace;
-            font-size: 11px;
-            line-height: 1.4;
-            color: rgba(255, 255, 255, 0.8);
-        }
         @keyframes af-spin {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
@@ -1328,12 +1294,91 @@
             padding: 16px 28px 14px;
             flex-shrink: 0;
         }
+        .memory-title-row {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .memory-title-copy {
+            min-width: 0;
+            flex: 1;
+        }
         .memory-title {
             margin: 0 0 8px;
             font-size: 22px;
             font-family: "Times New Roman", serif;
             color: #fff;
             letter-spacing: 0.02em;
+        }
+        .memory-summary-row {
+            margin-top: 6px;
+        }
+        .memory-edit-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .memory-edit-kicker {
+            font-size: 10px;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: rgba(150, 150, 150, 0.88);
+        }
+        .memory-edit-btn {
+            width: 30px;
+            height: 30px;
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.04);
+            color: rgba(232, 232, 232, 0.72);
+            cursor: pointer;
+            transition: color 0.22s ease, background 0.22s ease, border-color 0.22s ease, transform 0.22s ease;
+        }
+        .memory-edit-btn:hover {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.18);
+            transform: translateY(-1px);
+        }
+        .memory-editable.is-editing .memory-edit-btn {
+            color: #fff;
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.22);
+        }
+        .memory-edit-input {
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.04);
+            color: #fff;
+            outline: none;
+            transition: border-color 0.22s ease, background 0.22s ease, box-shadow 0.22s ease;
+        }
+        .memory-edit-input:focus {
+            border-color: rgba(255, 255, 255, 0.28);
+            background: rgba(255, 255, 255, 0.07);
+            box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.06);
+        }
+        .memory-edit-input--title {
+            margin: 0 0 8px;
+            padding: 10px 14px;
+            font-size: 20px;
+            line-height: 1.3;
+            font-family: "Times New Roman", serif;
+        }
+        .memory-edit-input--summary {
+            min-height: 170px;
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.65;
+            resize: vertical;
         }
         .memory-time {
             font-size: 10px;
