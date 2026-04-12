@@ -1,37 +1,77 @@
-# Afterglow (MemoryNote)
-A local-first memory palace web app.
+# Afterglow
 
-## Documentation
-See **[ai/PROJECT.md](ai/PROJECT.md)** for architecture and run instructions.
-See **[ai/DECISIONS.md](ai/DECISIONS.md)** for architectural decisions.
+A local-first memory palace app where photos dissolve into immersive 3D particle scenes, and AI helps you revisit and organize the stories behind them.
 
-## Deploy
-Frontend and backend should be deployed separately:
+> Concept inspired by [秒秒Guo](https://www.xiaohongshu.com/user/profile/55a508e8c2bdeb432f5763e2) on Xiaohongshu. Fully implemented as a solo project.
 
-- Frontend: Vercel
-- Backend API: Render
+**[→ Try the Live Demo](https://afterglow-44wh7wzan-noyolos-projects.vercel.app/)** (AI responses are mocked in the demo version)
 
-### Frontend on Vercel
-Import this repository as a Vite project.
+---
 
-- Build command: `npm run build`
-- Output directory: `dist`
-- Environment variable: `VITE_API_BASE=https://your-render-service.onrender.com`
+## Screenshots
 
-### Backend on Render
-Use the included [render.yaml](render.yaml) blueprint or create a Web Service manually.
+| Particle View — Halo Mode | Photo Particle Effect |
+|---------------------------|----------------------|
+| ![halo](halo-mode.jng) | ![photo](photo-particle.png) |
 
-- Root directory: `server`
-- Build command: `npm install`
-- Start command: `npm start`
-- Health check path: `/api/health`
+| The Hall — Memory Gallery | Calendar |
+|--------------------------|----------|
+| ![hall](the-hall.png) | ![calendar](calendar.png) |
 
-Required backend environment variables:
+## What It Does
 
-```env
-GEMINI_API_KEY=your_key_here
-GEMINI_ANALYZE_MODEL=gemini-2.5-flash
-GEMINI_CHAT_MODEL=gemini-2.5-flash
-GEMINI_DIARY_MODEL=gemini-2.5-flash
-GEMINI_CHAT_USE_SEARCH=1
+Upload a photo → it dissolves into thousands of particles in a WebGL scene → AI opens a conversation to help you recall and organize the memory → save it to your personal memory hall.
+
+Every memory becomes a visual object you can revisit, browse by date, or explore in The Hall.
+
+## Key Features
+
+- **Photo-to-particle visualization** — uploaded photos decompose into interactive 3D particle clouds using Three.js
+- **Multiple render modes** — Kolam, Halo, and Layered particle styles
+- **AI-guided memory capture** — Gemini-powered conversational prompts help you articulate and organize memories
+- **The Hall** — a gallery view of all saved memories as particle spheres
+- **Calendar** — browse and retrieve memories by date
+- **Voice input** — speak instead of type
+- **Local-first storage** — all data saved in IndexedDB, no account required
+- **Chinese / English toggle**
+
+## Tech Stack
+
+| Layer | Tech |
+|-------|------|
+| Frontend | Vite + Vanilla JS (ES Modules) |
+| 3D Rendering | Three.js (WebGL) |
+| Backend | Node.js + Express |
+| AI | Google Gemini API |
+| Storage | IndexedDB (local-first) |
+| Deployment | Vercel (frontend) + Render (backend) |
+
+## Why Vanilla JS
+
+The core experience is a full-screen WebGL canvas driven by Three.js. The UI around it is minimal — a few buttons, a text input, a calendar. Adding React or Vue would introduce framework overhead without meaningful benefit. The interface is intentionally simple so the 3D scene stays the focus.
+
+## Why Local-First
+
+Memories are personal. No account, no server-side storage, no data leaving the browser. Everything is saved in IndexedDB. The only external call is to the Gemini API for conversation, and even that can be mocked for the demo.
+
+## Run Locally
+
+```bash
+# Clone
+git clone https://github.com/Noyolos/Afterglow.git
+
+# Frontend
+cd Afterglow
+npm install
+npm run dev
+
+# Backend
+cd server
+npm install
+echo "GEMINI_API_KEY=your_key" > .env
+npm start
 ```
+
+## Project Status
+
+Working and deployed. The live demo uses mocked AI responses to avoid API costs. The full version with real Gemini integration is available when running locally with your own API key.
