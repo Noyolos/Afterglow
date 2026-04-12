@@ -8,17 +8,27 @@ A local-first memory palace app where photos dissolve into immersive 3D particle
 
 ---
 
+## Default Particle Scene
 
-## Screenshots
-![Afterglow](default.png)
+![Afterglow Default](default.png)
 
-| Particle View — Halo Mode | Photo Particle Effect |
-|---------------------------|----------------------|
-| ![halo](halo-mode.png) | ![photo](photo-particle.png) |
+## Photo Particle Effect — Street
 
-| The Hall — Memory Gallery | Calendar |
-|--------------------------|----------|
-| ![hall](the-hall.png) | ![calendar](calendar.png) |
+![Street Particle](photo-street.png)
+
+## Photo Particle Effect — Forest
+
+![Forest Particle](photo-forest.png)
+
+## The Hall — Memory Gallery
+
+![The Hall](the-hall.png)
+
+## Calendar
+
+![Calendar](calendar.png)
+
+---
 
 ## What It Does
 
