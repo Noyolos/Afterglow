@@ -136,8 +136,11 @@
                     <span>Upload</span>
                     <input type="file" id="fileInput" accept="image/*" />
                 </div>
+                <button id="af-preview-toggle" class="btn" type="button">Preview</button>
             </div>
         </div>
+
+        <button id="af-preview-exit" class="af-preview-exit" type="button">Exit Preview</button>
 
         <div id="gallery-ui" class="hidden">
             <button id="back-btn" class="btn" style="position:absolute; top:calc(var(--af-nav-offset, 56px) + 10px); left:30px; width:auto; padding:10px 25px; z-index:200;">&larr; Workstation</button>
@@ -224,7 +227,6 @@
             <div id="calendar-days" class="calendar-days"></div>
             <div class="calendar-actions">
                 <button id="calendar-back-home" type="button" class="calendar-action-btn">Back Home</button>
-                <button id="calendar-open-day" type="button" class="calendar-action-btn is-primary">Open Day</button>
             </div>
         </div>
     </div>

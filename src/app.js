@@ -34,7 +34,7 @@ function buildApiUrl(path) {
   if (!API_BASE) return suffix;
   return `${API_BASE}${suffix}`;
 }
-const AI_ENABLED = true;
+const AI_ENABLED = false;
 const VOICE_BOX_SENSITIVITY = 1.3;
 const VOICE_BOX_SCALE_MAX_BOOST = 0.12;
 const CHINESE_CHAR_RE = /[\u4e00-\u9fff]/;
@@ -598,6 +598,8 @@ export class App {
     this.voiceBoxMeterRaf = null;
     this.voiceBoxMeterBootPromise = null;
     this.voiceBoxReactiveActive = false;
+    this.previewMode = false;
+    this.pendingAnchorMemory = null;
     // [Codex] Voice Recognition Init
     this.recognition = null;
     this.isRecognizing = false;
@@ -804,13 +806,14 @@ export class App {
       langEnBtn,
       navHall,
       navCalendar,
-      calendarOpenDayBtn,
       calendarBackHomeBtn,
       renderToggle,
       renderKolam,
       renderHalo,
       renderLayered,
       hallResetBtn,
+      previewToggle,
+      previewExit,
       diaryModal,
       diaryModalClose,
       diaryModalShare,
@@ -841,6 +844,17 @@ export class App {
     stopToggleEvent(languageMenu);
     stopToggleEvent(langZhBtn);
     stopToggleEvent(langEnBtn);
+    stopToggleEvent(previewToggle);
+    stopToggleEvent(previewExit);
+
+    previewToggle?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._togglePreviewMode();
+    });
+    previewExit?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      this._setPreviewMode(false);
+    });
 
     renderKolam?.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1005,15 +1019,28 @@ export class App {
       if (this.saveInFlight || this.blockerActive) return;
       this._openCalendarNavigator();
     });
-    calendarOpenDayBtn?.addEventListener("click", () => {
-      if (this.saveInFlight || this.blockerActive) return;
-      this._openSelectedCalendarDay();
-    });
     calendarBackHomeBtn?.addEventListener("click", () => {
       if (this.saveInFlight) return;
       this._hideMemoryViews();
       this._setMainUIVisible(true);
       this._syncHomeActionState();
+    });
+
+    this.memoryCalendar.setOnDateSelect(async (dateKey) => {
+      try {
+        if (this.pendingAnchorMemory) {
+          this.pendingAnchorMemory.anchorDate = dateKey;
+          await this.storage.upsertMemory(this.pendingAnchorMemory);
+          this.pendingAnchorMemory = null;
+        }
+        await this.memoryCalendar.playPinAnimation(dateKey);
+        this.galleryBackTarget = "calendar";
+        this.memoryCalendar.setBackgroundOnly(true);
+        document.body.classList.add("gallery-over-calendar-bg");
+        await this._openGalleryForDateKey(dateKey);
+      } catch (err) {
+        console.warn("Failed to handle date selection", err);
+      }
     });
 
     this._syncHomeVoiceUI();
@@ -1237,15 +1264,8 @@ export class App {
       return;
     }
 
-    const hasOpeningLine = this.messages.some(
-      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
-    );
     if (!this._hasSessionImage()) {
       this._setInputStatus(this._t("uploadFirst"));
-      return;
-    }
-    if (!hasOpeningLine) {
-      this._setInputStatus(this._t("waitOpening"));
       return;
     }
     this._setInputStatus(this._t("saveMemory"));
@@ -1330,7 +1350,6 @@ export class App {
       this.imageAnalysis = caption;
       this.imageContext = this._buildImageContext(analysis || {});
       this._setHomePromptQuestions(analysis?.questions);
-      this._setOpeningLineFromAnalysis(analysis || {});
       this._markAnalysisTrace(analysisTrace, "t4_ui", `captionLen=${caption.length}`);
       this._logAnalysisSummary(analysisTrace);
 
@@ -1358,10 +1377,6 @@ export class App {
   async _handleSaveMemory() {
     if (this.saveInFlight || this.blockerActive) return;
     if (!this._hasSessionImage()) return;
-    const hasOpeningLine = this.messages.some(
-      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
-    );
-    if (!hasOpeningLine) return;
 
     this.saveInFlight = true;
     this._syncHomeActionState();
@@ -1412,22 +1427,9 @@ export class App {
     await this._renderMemoryCalendarForCurrentMonth();
     this.memoryCalendar.show();
     const defaultDateKey = this._toLocalDateKey(new Date());
-    const selectedDateKey = await this.memoryCalendar.waitForDateSelection({
-      defaultDateKey,
-      timeoutMs: 120000,
-    });
-    if (newMemory && selectedDateKey) {
-      try {
-        newMemory.anchorDate = selectedDateKey;
-        await this.storage.upsertMemory(newMemory);
-      } catch (err) {
-        console.warn("Failed to persist selected anchor date", err);
-      }
-    }
-    await this.memoryCalendar.playPinAnimation(selectedDateKey);
-    this.memoryCalendar.setBackgroundOnly(true);
-    document.body.classList.add("gallery-over-calendar-bg");
-    await this._openGalleryForDateKey(selectedDateKey || defaultDateKey, { fallbackMemory: newMemory });
+    this.pendingAnchorMemory = newMemory || null;
+    this.memoryCalendar.setBackgroundOnly(false);
+    this.memoryCalendar.selectDate(defaultDateKey);
   }
 
   async _openGalleryForDateKey(targetDateKey, { fallbackMemory = null } = {}) {
@@ -1524,12 +1526,14 @@ export class App {
   }
 
   _getMemoryDateKey(memory) {
-    return this._toLocalDateKey(memory?.anchorDate) || this._toLocalDateKey(memory?.createdAt);
+    return this._toLocalDateKey(memory?.anchorDate);
   }
 
   _buildHistoricalCounts(memories) {
     const counts = {};
     (Array.isArray(memories) ? memories : []).forEach((memory) => {
+      if (!memory?.id) return;
+      if (!memory?.assets?.thumbKey || !memory?.assets?.renderKey) return;
       const key = this._getMemoryDateKey(memory);
       if (!key) return;
       counts[key] = (counts[key] || 0) + 1;
@@ -1629,6 +1633,21 @@ export class App {
       .join("\n");
   }
 
+  _togglePreviewMode() {
+    this._setPreviewMode(!this.previewMode);
+  }
+
+  _setPreviewMode(isActive) {
+    this.previewMode = Boolean(isActive);
+    document.body.classList.toggle("mode-preview", this.previewMode);
+    if (this.previewMode) {
+      this._setMode("home");
+      this._stopVoiceTimer({ reset: true, clearDraft: true });
+      this._clearMockStream({ clearText: true });
+      this.stage.setTyping(false);
+    }
+  }
+
   _createMockDiaryCard({ createdAt, transcript }) {
     const createdDate = createdAt ? new Date(createdAt) : new Date();
     const summaryBase = transcript ? transcript.trim() : "";
@@ -1645,6 +1664,88 @@ export class App {
     };
   }
 
+  _pickMockItem(items, seed, offset = 0) {
+    if (!Array.isArray(items) || items.length === 0) return "";
+    const n = items.length;
+    const idx = Math.floor(((seed + offset) % 1) * n);
+    return items[Math.max(0, Math.min(n - 1, idx))];
+  }
+
+  _createMockAnalysis(file) {
+    const basis = `${file?.name || "image"}:${file?.size || 0}:${this.language}`;
+    const seed = hashStringToSeed(basis);
+    const zh = {
+      opener: [
+        "哇，这张看起来好安静。",
+        "这个画面很有故事感。",
+        "光线太好看了。",
+        "这张有种很温柔的氛围。",
+      ],
+      caption: [
+        "一张带着柔和光线的照片。",
+        "画面很宁静，像傍晚的空气。",
+        "视觉里有一点梦幻的感觉。",
+        "像是一段安静的日常时刻。",
+      ],
+      vibe: ["安静", "柔和", "温暖", "清澈"],
+      questions: ["要不要和我说说当时的心情？", "你想把这一刻留在哪里？"],
+    };
+    const en = {
+      opener: [
+        "Wow, this feels so calm.",
+        "There is something quietly beautiful here.",
+        "The light in this image is lovely.",
+        "This scene feels gentle and still.",
+      ],
+      caption: [
+        "A quiet image with soft light.",
+        "A calm scene that feels like evening air.",
+        "A peaceful everyday moment.",
+        "A dreamy, gentle visual impression.",
+      ],
+      vibe: ["calm", "soft", "warm", "quiet"],
+      questions: ["Do you want to tell me what this moment felt like?"],
+    };
+    const pack = this.language === "zh" ? zh : en;
+    return {
+      vibe: this._pickMockItem(pack.vibe, seed, 0.11),
+      caption: this._pickMockItem(pack.caption, seed, 0.29),
+      opener: this._pickMockItem(pack.opener, seed, 0.47),
+      questions: [this._pickMockItem(pack.questions, seed, 0.73)].filter(Boolean),
+    };
+  }
+
+  _createMockChatReply(contents) {
+    const userText = Array.isArray(contents)
+      ? contents
+          .flatMap((item) => item?.parts || [])
+          .map((part) => (typeof part?.text === "string" ? part.text : ""))
+          .join(" ")
+      : "";
+    const seed = hashStringToSeed(`${userText}:${this.replyTurn}:${this.language}`);
+    const zh = [
+      "嗯，这一刻很值得被记住。",
+      "这张的感觉很轻，很耐看。",
+      "像是把情绪放进了光里。",
+      "你愿意的话，可以再说一点。",
+    ];
+    const en = [
+      "That feels worth holding on to.",
+      "The mood here is gentle and steady.",
+      "It feels like the light is carrying the feeling.",
+      "If you want, you can tell me a little more.",
+    ];
+    const pool = this.language === "zh" ? zh : en;
+    return this._pickMockItem(pool, seed, 0.33) || pool[0];
+  }
+
+  _createMockDiaryResult(transcript) {
+    const diaryCard = this._createMockDiaryCard({ transcript });
+    const diaryText = transcript?.trim() || diaryCard.summary;
+    const highlights = diaryText ? [diaryText.slice(0, 60)] : [];
+    return { diaryCard, diaryText, highlights };
+  }
+
   _setHomePromptQuestions(questions) {
     const normalized = Array.isArray(questions)
       ? questions
@@ -1656,7 +1757,7 @@ export class App {
   }
 
   async _getImageAnalysis(file, trace) {
-    if (!AI_ENABLED) throw new Error("AI_DISABLED");
+    if (!AI_ENABLED) return this._createMockAnalysis(file);
     return await this._fetchImageAnalysis(file, trace);
   }
 
@@ -1805,7 +1906,7 @@ export class App {
 
   async _getDiaryResultForSave(transcript) {
     const dateISO = new Date().toISOString();
-    if (!AI_ENABLED) throw new Error("AI_DISABLED");
+    if (!AI_ENABLED) return this._createMockDiaryResult(transcript);
     const apiResponse = await this._fetchDiaryResponse({ transcriptText: transcript, dateISO });
     return this._mapDiaryResponseToResult(apiResponse, { transcriptText: transcript, dateISO });
   }
@@ -2033,11 +2134,8 @@ export class App {
     const { micBtn, memoryInput, saveMemoryBtn, closeVoiceBtn } = this.dom;
     const isHome = this.state?.mode === "home";
     const hasImage = this._hasSessionImage();
-    const hasOpeningLine = this.messages.some(
-      (msg) => msg && msg.role === "model" && typeof msg.content === "string" && msg.content.trim().length > 0
-    );
     const canInteract = isHome && hasImage && !this.saveInFlight && !this.blockerActive;
-    const canSave = canInteract && hasOpeningLine;
+    const canSave = canInteract;
     const voiceActive = this.voiceTimerRunning || this.isRecognizing;
 
     const nextMicDisabled = !canInteract && !voiceActive;
@@ -2506,7 +2604,7 @@ export class App {
   }
 
   async _fetchChatReply(contents) {
-    if (!AI_ENABLED) throw new Error("AI_DISABLED");
+    if (!AI_ENABLED) return this._createMockChatReply(contents);
     const response = await fetch(buildApiUrl("/api/chat"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

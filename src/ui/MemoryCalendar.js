@@ -232,6 +232,7 @@ export class MemoryCalendar {
     this.monthLabel = document.getElementById("calendar-month-year");
     this.view = document.getElementById("view-calendar");
     this.selectedDateKey = "";
+    this.userSelectedDate = false;
     this.currentYear = 0;
     this.currentMonth = 0;
     this.onDateSelect = null;
@@ -248,7 +249,7 @@ export class MemoryCalendar {
       const cell = event.target?.closest?.(".date-cell[data-date]");
       if (!cell) return;
       const dateKey = cell.getAttribute("data-date");
-      this.selectDate(dateKey);
+      this.selectDate(dateKey, { userInitiated: true });
     });
   }
 
@@ -266,7 +267,7 @@ export class MemoryCalendar {
     const cells = this.container.querySelectorAll(".date-cell[data-date]");
     cells.forEach((cell) => {
       const key = cell.getAttribute("data-date");
-      cell.classList.toggle("active-day", key === this.selectedDateKey);
+      cell.classList.toggle("active-day", this.userSelectedDate && key === this.selectedDateKey);
     });
   }
 
@@ -274,6 +275,7 @@ export class MemoryCalendar {
     if (!this.container || !this.monthLabel) return;
     this.currentYear = year;
     this.currentMonth = month;
+    this.userSelectedDate = false;
 
     this.container.innerHTML = "";
     this.monthLabel.textContent = `${MONTH_NAMES[month - 1]} ${year}`;
@@ -289,6 +291,7 @@ export class MemoryCalendar {
     const isCurrentMonth = today.getFullYear() === year && today.getMonth() + 1 === month;
     const currentDay = today.getDate();
     const todayKey = this._buildDateKey(year, month, currentDay);
+    const todayLabel = (document.documentElement.lang || "").toLowerCase().startsWith("zh") ? "今天" : "Today";
     let activeKey = "";
     if (this._isKeyInMonth(preferredDateKey, year, month)) activeKey = preferredDateKey;
     else if (this._isKeyInMonth(this.selectedDateKey, year, month)) activeKey = this.selectedDateKey;
@@ -300,16 +303,18 @@ export class MemoryCalendar {
       const key = this._buildDateKey(year, month, day);
       const count = Number(historicalCounts[key] || 0);
       const isToday = isCurrentMonth && day === currentDay;
-      const isActive = key === this.selectedDateKey;
+      const isActive = this.userSelectedDate && key === this.selectedDateKey;
       const dots = Array.from({ length: Math.max(0, count) })
         .map(() => `<div class="memory-dot"></div>`)
         .join("");
+      const label = isToday ? `<div class="date-label">${todayLabel}</div>` : "";
 
       this.container.insertAdjacentHTML(
         "beforeend",
         `
           <div class="date-cell ${isActive ? "active-day" : ""}" id="day-${day}" data-date="${key}">
             <span class="date-num ${isToday ? "is-today" : ""}">${day}</span>
+            ${label}
             <div class="date-dots" id="dots-${day}">
               ${dots}
             </div>
@@ -327,11 +332,12 @@ export class MemoryCalendar {
     return this.selectedDateKey || "";
   }
 
-  selectDate(dateKey) {
+  selectDate(dateKey, { userInitiated = false } = {}) {
     if (!dateKey) return;
     this.selectedDateKey = dateKey;
+    if (userInitiated) this.userSelectedDate = true;
     this._updateActiveState();
-    if (this.onDateSelect) this.onDateSelect(dateKey);
+    if (this.onDateSelect && userInitiated) this.onDateSelect(dateKey);
     if (this.pendingSelectionResolve) {
       const resolve = this.pendingSelectionResolve;
       this.pendingSelectionResolve = null;
@@ -341,6 +347,10 @@ export class MemoryCalendar {
       }
       resolve(dateKey);
     }
+  }
+
+  hasUserSelection() {
+    return this.userSelectedDate;
   }
 
   waitForDateSelection({ timeoutMs = 120000, defaultDateKey = "" } = {}) {
@@ -381,6 +391,19 @@ export class MemoryCalendar {
       const today = Number(selected.split("-")[2] || 0);
       const dotsContainer = document.getElementById(`dots-${today}`);
       if (!dotsContainer) {
+        resolve();
+        return;
+      }
+
+      // If this day already has a dot, do not add another one.
+      if (dotsContainer.querySelector(".memory-dot")) {
+        if (this.card) {
+          window.setTimeout(() => {
+            this.card.classList.remove("shake-active");
+            void this.card.offsetWidth;
+            this.card.classList.add("shake-active");
+          }, 200);
+        }
         resolve();
         return;
       }

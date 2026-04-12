@@ -22,6 +22,8 @@ export function getDom() {
     nextZone: byId("next-zone"),
 
     controlPanel: byId("control-panel"),
+    previewToggle: byId("af-preview-toggle"),
+    previewExit: byId("af-preview-exit"),
     galleryUI: byId("gallery-ui"),
     galleryCounter: byId("gallery-counter"),
 
@@ -51,7 +53,6 @@ export function getDom() {
 
     navHall: document.querySelector('[data-action="open-hall"]'),
     navCalendar: document.querySelector('[data-action="open-calendar"]'),
-    calendarOpenDayBtn: byId("calendar-open-day"),
     calendarBackHomeBtn: byId("calendar-back-home"),
 
     diaryModal: byId("af-diary-modal"),
