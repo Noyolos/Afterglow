@@ -1,89 +1,146 @@
 # Afterglow
 
-A local-first memory palace app where photos dissolve into immersive 3D particle scenes, and AI helps you revisit and organize the stories behind them.
+A local-first memory app where photos dissolve into immersive 3D particle scenes, and AI helps turn fleeting moments into revisitable memories.
 
-> Concept inspired by [秒秒Guo](https://www.xiaohongshu.com/user/profile/55a508e8c2bdeb432f5763e2) on Xiaohongshu. Fully implemented as a solo project.
+> Inspired by 秒秒Guo on Xiaohongshu. Rebuilt as a solo project with my own visual styling, UI decisions, and implementation approach.
 
-**[→ Try the Live Demo](https://afterglow-44wh7wzan-noyolos-projects.vercel.app/)** (AI responses are mocked in the demo version)
+**[→ Try the Live Demo](https://afterglow-44wh7wzan-noyolos-projects.vercel.app/)**
+*(The public demo uses mocked AI responses.)*
 
 ---
 
-## Default Particle Scene
+## Preview
+
+### Default Particle Scene
 
 ![Afterglow Default](default.png)
 
-## Photo Particle Effect — Street
+### Photo Particle Effect — Street
 
 ![Street Particle](photo-particle.png)
 
-## Photo Particle Effect — Forest
+### Photo Particle Effect — Forest
 
 ![Forest Particle](halo-mode.png)
 
-## The Hall — Memory Gallery
+### The Hall — Memory Gallery
 
 ![The Hall](the-hall.png)
 
-## Calendar
+### Calendar View
 
 ![Calendar](calendar.png)
 
 ---
 
+## Overview
+
+Afterglow is a personal reinterpretation of a memory-palace style experience.
+
+Instead of storing photos as a static gallery, the app transforms them into interactive 3D particle scenes. AI then helps the user recall, describe, and organize the story behind each moment. The result is a more emotional and immersive way to revisit personal memories.
+
+While the overall concept and several major modules were inspired by an existing project direction, this version was independently rebuilt by me with my own UI styling, visual choices, and implementation decisions.
+
+---
+
 ## What It Does
 
-Upload a photo → it dissolves into thousands of particles in a WebGL scene → AI opens a conversation to help you recall and organize the memory → save it to your personal memory hall.
+* Upload a photo and transform it into a 3D particle-based scene
+* Use AI-guided prompts to reflect on and describe the memory
+* Save each memory into a personal visual archive
+* Revisit memories through **The Hall** gallery view
+* Browse memories by date through the **Calendar**
+* Switch between Chinese and English
+* Use voice input for a more natural capture flow
 
-Every memory becomes a visual object you can revisit, browse by date, or explore in The Hall.
+---
+
+## My Contribution
+
+This project was built end-to-end by me as a solo project.
+
+What I wanted to show through Afterglow was not that I invented the original product concept, but that I could study a strong reference, rebuild it from scratch, and turn that inspiration into a polished working experience. My main contribution in this version is the end-to-end implementation, visual presentation, UI styling, and the overall product polish.
+
+---
+
+## Why This Project Matters
+
+Most photo apps store memories, but they rarely help people emotionally reconnect with them.
+
+Afterglow explores a different direction: treating memory as an atmosphere, not just an image. The goal was to combine visual immersion, reflection, and lightweight AI assistance into a more meaningful personal experience.
+
+This project reflects the kind of work I enjoy most: turning abstract creative ideas into something real, interactive, and usable.
+
+---
 
 ## Key Features
 
-- **Photo-to-particle visualization** — uploaded photos decompose into interactive 3D particle clouds using Three.js
-- **Multiple render modes** — Kolam, Halo, and Layered particle styles
-- **AI-guided memory capture** — Gemini-powered conversational prompts help you articulate and organize memories
-- **The Hall** — a gallery view of all saved memories as particle spheres
-- **Calendar** — browse and retrieve memories by date
-- **Voice input** — speak instead of type
-- **Local-first storage** — all data saved in IndexedDB, no account required
-- **Chinese / English toggle**
+* **Photo-to-particle visualization** — photos become immersive 3D particle compositions
+* **Multiple visual modes** — different particle styles create different moods
+* **AI-guided memory capture** — conversational prompts help shape vague recollections into words
+* **The Hall** — a visual memory gallery for revisiting saved moments
+* **Calendar browsing** — access memories through time, not just folders
+* **Voice input** — capture thoughts more naturally
+* **Local-first storage** — memories stay in the browser, with no account required
+* **Chinese / English toggle**
+
+---
 
 ## Tech Stack
 
-| Layer | Tech |
-|-------|------|
-| Frontend | Vite + Vanilla JS (ES Modules) |
-| 3D Rendering | Three.js (WebGL) |
-| Backend | Node.js + Express |
-| AI | Google Gemini API |
-| Storage | IndexedDB (local-first) |
-| Deployment | Vercel (frontend) + Render (backend) |
+| Layer        | Tech                      |
+| ------------ | ------------------------- |
+| Frontend     | Vite + Vanilla JavaScript |
+| 3D Rendering | Three.js                  |
+| Backend      | Node.js + Express         |
+| AI           | Google Gemini API         |
+| Storage      | IndexedDB                 |
+| Deployment   | Vercel + Render           |
+
+---
 
 ## Why Vanilla JS
 
-The core experience is a full-screen WebGL canvas driven by Three.js. The UI around it is minimal — a few buttons, a text input, a calendar. Adding React or Vue would introduce framework overhead without meaningful benefit. The interface is intentionally simple so the 3D scene stays the focus.
+The core of Afterglow is a full-screen visual scene built around WebGL and Three.js. The surrounding interface is intentionally minimal, so a lightweight setup made more sense than adding a heavy frontend framework.
+
+---
 
 ## Why Local-First
 
-Memories are personal. No account, no server-side storage, no data leaving the browser. Everything is saved in IndexedDB. The only external call is to the Gemini API for conversation, and even that can be mocked for the demo.
+Memories are personal, so I wanted the app to feel private and low-friction. Afterglow stores core memory data locally in the browser using IndexedDB, without requiring sign-up or a cloud account. For the public demo, AI responses are mocked; in the full version, Gemini can be connected with a user-provided API key.
+
+---
 
 ## Run Locally
 
 ```bash
-# Clone
+# Clone the project
 git clone https://github.com/Noyolos/Afterglow.git
-
-# Frontend
 cd Afterglow
+
+# Start frontend
 npm install
 npm run dev
+```
 
-# Backend
+In a second terminal:
+
+```bash
 cd server
 npm install
 echo "GEMINI_API_KEY=your_key" > .env
 npm start
 ```
 
+---
+
 ## Project Status
 
-Working and deployed. The live demo uses mocked AI responses to avoid API costs. The full version with real Gemini integration is available when running locally with your own API key.
+The project is functional and publicly deployed as a demo.
+The live version uses mocked AI responses to keep it lightweight, while the local version supports full Gemini integration with a valid API key.
+
+---
+
+## Notes
+
+This project is inspired by an existing creative concept, and several important modules follow that reference direction. What this version demonstrates is my ability to independently rebuild the experience, execute it end-to-end, and express my own taste through the UI, visual treatment, and final product polish.
