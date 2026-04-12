@@ -8,7 +8,9 @@ A local-first memory palace app where photos dissolve into immersive 3D particle
 
 ---
 
+
 ## Screenshots
+![Afterglow](default.png)
 
 | Particle View — Halo Mode | Photo Particle Effect |
 |---------------------------|----------------------|
