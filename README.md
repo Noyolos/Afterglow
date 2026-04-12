@@ -14,7 +14,7 @@ A local-first memory palace app where photos dissolve into immersive 3D particle
 
 | Particle View — Halo Mode | Photo Particle Effect |
 |---------------------------|----------------------|
-| ![halo](halo-mode.jng) | ![photo](photo-particle.png) |
+| ![halo](halo-mode.png) | ![photo](photo-particle.png) |
 
 | The Hall — Memory Gallery | Calendar |
 |--------------------------|----------|
