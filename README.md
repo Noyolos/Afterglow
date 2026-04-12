@@ -14,11 +14,11 @@ A local-first memory palace app where photos dissolve into immersive 3D particle
 
 ## Photo Particle Effect — Street
 
-![Street Particle](photo-street.png)
+![Street Particle](photo-particle.png)
 
 ## Photo Particle Effect — Forest
 
-![Forest Particle](photo-forest.png)
+![Forest Particle](halo-mode.png)
 
 ## The Hall — Memory Gallery
 
